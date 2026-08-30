@@ -240,7 +240,7 @@ export function WriterSetupGuide({
 
       <div className="setup-writer-options">
         <label htmlFor="setup-writer-name">
-          <span>Name this computer</span>
+          <span>Name the new computer</span>
           <input
             id="setup-writer-name"
             value={machineName}

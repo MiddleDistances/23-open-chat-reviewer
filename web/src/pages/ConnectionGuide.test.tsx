@@ -64,7 +64,7 @@ describe("multi-machine connection guide", () => {
       />,
     );
 
-    fireEvent.change(screen.getByLabelText(/name this computer/i), {
+    fireEvent.change(screen.getByLabelText(/name the new computer/i), {
       target: { value: "Studio Laptop" },
     });
     fireEvent.click(screen.getByRole("button", { name: "macOS" }));
