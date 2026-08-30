@@ -92,8 +92,9 @@ function estimateFromPreview(preview: SetupPreviewResponse): SetupEstimate {
 export default function SetupRoute() {
   const { data: setupStatus, refresh: refreshStatus } =
     useApi<SetupStatusResponse>("/api/setup/status");
+  const { data: progress, setData: setProgress } =
+    useApi<SetupProgress>("/api/setup/build");
   const [preview, setPreview] = useState<SetupPreviewResponse | null>(null);
-  const [progress, setProgress] = useState<SetupProgress | null>(null);
 
   useEffect(() => {
     if (
@@ -125,7 +126,12 @@ export default function SetupRoute() {
       }));
     }
     if (!setupStatus) return [];
-    const syncing = setupStatus.database.ingestion_in_progress > 0;
+    const syncing = Boolean(
+      progress &&
+        ["queued", "scanning", "syncing", "deriving", "refreshing", "embedding", "cancelling"].includes(
+          progress.status,
+        ),
+    );
     return [
       {
         id: setupStatus.machine.id,
@@ -143,7 +149,7 @@ export default function SetupRoute() {
         note: setupStatus.database.error,
       },
     ];
-  }, [preview?.machines, setupStatus]);
+  }, [preview?.machines, progress, setupStatus]);
 
   async function previewBuild(config: SetupConfig) {
     const result = await api<SetupPreviewResponse>("/api/setup/preview", {
