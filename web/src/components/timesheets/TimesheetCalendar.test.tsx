@@ -254,4 +254,47 @@ describe("TimesheetCalendar helpers", () => {
     expect(daySourceClass(dayEvidenceKinds(day, []))).toBe("source-both");
     expect(daySourceClass(dayEvidenceKinds(day, ["missing"]))).toBe("source-none");
   });
+
+  it("gives each month label the width of its calendar segment", async () => {
+    const calendar = {
+      financial_year: "2025-26",
+      available_financial_years: ["2025-26"],
+      date_from: "2025-07-01",
+      date_to: "2026-06-30",
+      days: [],
+      projects: [],
+    };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const payload = String(input).includes("/api/timesheets/calendar") ? calendar : { rows: [] };
+      return new Response(JSON.stringify(payload), {
+        headers: { "Content-Type": "application/json" },
+        status: 200,
+      });
+    }));
+
+    const { container } = render(
+      <TimesheetCalendar financialYear="2025-26" setFinancialYear={vi.fn()} />,
+    );
+    await screen.findByText("0 work days in FY 2025-26");
+    const monthLabels = container.querySelectorAll(".timesheet-calendar-chart .timesheet-month-labels span");
+
+    expect(monthLabels).toHaveLength(12);
+    expect([...monthLabels].map((label) => {
+      const style = (label as HTMLElement).style;
+      return [style.gridColumnStart, style.gridColumnEnd];
+    })).toEqual([
+      ["1", "5"],
+      ["5", "10"],
+      ["10", "14"],
+      ["14", "18"],
+      ["18", "23"],
+      ["23", "27"],
+      ["27", "32"],
+      ["32", "36"],
+      ["36", "40"],
+      ["40", "44"],
+      ["44", "49"],
+      ["49", "54"],
+    ]);
+  });
 });

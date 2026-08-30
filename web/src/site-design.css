@@ -28,6 +28,8 @@
   --danger-soft: #fff0ef;
   --warning: #725c2f;
   --blue: #3e6ae1;
+  --evidence-git: #4f9a68;
+  --evidence-chat: #e59a4f;
   --shadow: none;
 }
 
@@ -1089,9 +1091,33 @@ textarea::placeholder {
 .timesheet-section-heading h2 {
   font-size: 20px;
 }
+.timesheet-section-heading > div,
+.timesheet-calendar-filters,
+.timesheet-calendar-filters label {
+  min-width: 0;
+}
 .timesheet-section-heading p {
   color: #393c41;
   font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.timesheet-calendar-filters select {
+  max-width: 100%;
+}
+.timesheet-focus-stats > div {
+  grid-template-columns: auto minmax(0, 1fr);
+}
+.timesheet-focus-stats > div > svg {
+  grid-column: 1;
+  grid-row: 1 / span 2;
+}
+.timesheet-focus-stats strong,
+.timesheet-focus-stats span {
+  grid-column: 2;
+  min-width: 0;
+}
+.timesheet-focus-stats span {
+  overflow-wrap: anywhere;
 }
 .timesheet-calendar-filters label span,
 .timesheet-month-labels,
@@ -1133,6 +1159,49 @@ textarea::placeholder {
 .repository-timeline-weeks .level-4 {
   background: #3e6ae1;
 }
+.timesheet-day.source-git {
+  background: var(--evidence-git);
+}
+.timesheet-day.source-chat {
+  background: var(--evidence-chat);
+}
+.timesheet-day.source-both {
+  background: var(--evidence-git);
+  background-image: linear-gradient(
+    90deg,
+    var(--evidence-git) 0 50%,
+    var(--evidence-chat) 50% 100%
+  ) !important;
+}
+.timesheet-day.source-none {
+  background: #eeeeee;
+}
+.timesheet-month-labels span {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.timesheet-calendar-footer > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.timesheet-source-legend .source-git {
+  background: var(--evidence-git);
+}
+.timesheet-source-legend .source-chat {
+  background: var(--evidence-chat);
+}
+.timesheet-source-legend .source-both {
+  background: var(--evidence-git);
+  background-image: linear-gradient(
+    90deg,
+    var(--evidence-git) 0 50%,
+    var(--evidence-chat) 50% 100%
+  ) !important;
+}
+.archive-downloads {
+  flex-wrap: wrap;
+}
 .repository-timeline-row {
   border-color: #d0d1d2;
 }
@@ -1151,12 +1220,12 @@ textarea::placeholder {
   font-size: 13px;
 }
 .repository-evidence-git {
-  color: #393c41;
-  background: #eeeeee;
+  color: #ffffff;
+  background: var(--evidence-git);
 }
 .repository-evidence-chat {
-  color: #ffffff;
-  background: #3e6ae1;
+  color: #171a20;
+  background: var(--evidence-chat);
 }
 .repository-evidence-device {
   color: #5c5e62;
@@ -1463,6 +1532,17 @@ textarea::placeholder {
   .timesheet-calendar-filters label:first-child select,
   .timesheet-calendar-filters select {
     width: 100%;
+  }
+  .timesheet-calendar-footer {
+    align-items: flex-start;
+    flex-direction: column;
+    padding-left: 0;
+  }
+}
+
+@media (max-width: 360px) {
+  .timesheet-focus-stats {
+    grid-template-columns: 1fr;
   }
 }
 

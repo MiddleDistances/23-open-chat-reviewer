@@ -632,11 +632,27 @@ function providerName(provider: string): string {
 }
 
 function MonthHeader({ weeks, dateFrom }: { weeks: CalendarWeek[]; dateFrom: string }) {
+  const months = financialYearMonths(dateFrom).map((month) => ({
+    ...month,
+    weekIndex: monthWeekIndex(dateFrom, month.date),
+  }));
   return (
     <div className="timesheet-month-labels" style={{ gridTemplateColumns: `repeat(${weeks.length}, var(--calendar-day))` }}>
-      {financialYearMonths(dateFrom).map((month) => (
-        <span style={{ gridColumnStart: monthWeekIndex(dateFrom, month.date) + 1 }} key={month.date}>{month.label}</span>
-      ))}
+      {months.map((month, index) => {
+        const nextMonthWeek = months[index + 1]?.weekIndex ?? weeks.length;
+        const endWeek = Math.max(month.weekIndex + 1, nextMonthWeek);
+        return (
+          <span
+            style={{
+              gridColumnEnd: endWeek + 1,
+              gridColumnStart: month.weekIndex + 1,
+            }}
+            key={month.date}
+          >
+            {month.label}
+          </span>
+        );
+      })}
     </div>
   );
 }
