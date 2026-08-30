@@ -1,7 +1,7 @@
 [project]
 name = "open-chat-reviewer"
 version = "0.1.0"
-description = "Self-hosted PostgreSQL archive and review workspace for AI conversations"
+description = "Private cross-machine memory for Codex, Claude, Gemini, and Git work"
 readme = "README.md"
 requires-python = ">=3.12,<3.14"
 license = "Apache-2.0"

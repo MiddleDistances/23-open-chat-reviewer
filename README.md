@@ -1,45 +1,68 @@
 # Open Chat Reviewer
 
-Open Chat Reviewer is a self-hosted archive and review workspace for local AI coding
-conversations. It incrementally discovers Codex, Claude, and Gemini chat files, preserves
-their raw provenance in PostgreSQL, reconstructs searchable conversations and work
-episodes, and presents the result in a local web interface.
-
-Git activity and overlap-aware workload calendars are included as an enabled-by-default
-module. Evidence-bounded resume cards are optional and work with a local Qwen model,
-the user's existing Codex/Claude/Gemini CLI login, hosted model gateways, Anthropic, or
-a small custom provider plugin.
-
-The recommended topology is one Tailscale-only central archive with small writer agents
-on each computer. Every writer scans its local read-only chat directories into the same
-PostgreSQL database, so the review and workload views span the user's actual machines
-without copying raw archive files between them.
+**Pick up where you left off — across every computer.**
 
 ![Status: alpha](https://img.shields.io/badge/status-alpha-orange)
 ![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)
 
-## What it includes
+## Why I made this
 
-- Read-only discovery of Codex, Claude, Gemini, and Git source directories.
-- Resumable, append-aware sync with raw payload hashes and exact source locations.
-- PostgreSQL full-text search and optional pgvector semantic search.
-- Deterministic goal/attempt/result episodes, session traces, annotations, and exports.
-- Optional evidence-bounded summaries with fingerprint reuse for unchanged sessions.
-- Setup-page summary controls that safely reuse supported coding-agent CLI subscriptions
-  without copying their credentials into the application.
-- Git-backed project history plus workload/timesheet calendars that avoid double-counting
-  parallel chats for the same project.
-- A FastAPI backend, responsive React UI, unattended worker, and Linux/macOS service
-  templates.
+My AI-assisted work was scattered across Codex, Claude, and Gemini chats on several
+computers. I wanted one place that could remember what I had been working on, help me
+pick up where I left off, and remind me what I was supposed to do next.
 
-The research graph, outcome-judging system, benchmark harness, and tax-specific reporting
-from the original private application are intentionally not part of this repository.
+Once the chats were together, I realised they could be combined with Git activity to
+make a useful workload calendar and draft timesheets. That was unexpectedly handy.
 
-## Quick start
+Then I wanted other agents to be able to search the same history: find an old discussion,
+recover documentation or references I knew I had seen, or review work that happened on
+another machine. A read-only public MCP interface is the next major feature.
 
-Requirements: Python 3.12 or 3.13, [uv](https://docs.astral.sh/uv/), Docker with Compose,
-[Tailscale](https://tailscale.com/download) for the recommended private multi-machine
-setup, and optionally [Bun](https://bun.sh/) to build the UI.
+Finally, I wanted summaries without forcing everyone to buy another API subscription.
+Open Chat Reviewer can use a local model or the Codex, Claude, or Gemini CLI login already
+active on the computer.
+
+That is the project: **a private, self-hosted memory for AI-assisted work.**
+
+## What it helps with
+
+### Remember the work
+
+Bring Codex, Claude, and Gemini conversation history from all your computers into one
+searchable archive. Open a conversation, inspect its evidence, and see where the work
+appears to have stopped.
+
+### Understand your time
+
+Combine chat activity with Git commit metadata to create a workload calendar and draft
+timesheets. Overlapping activity is merged so parallel agents are not blindly counted as
+extra human hours.
+
+### Summarise on your terms
+
+Use a local model, or reuse an existing Codex, Claude, or Gemini CLI login. The application
+sends one bounded evidence packet to the selected summariser; it does not copy CLI tokens.
+
+### Let agents look back
+
+The planned public MCP will let another agent search and cite this archive without giving
+it arbitrary SQL, filesystem access, or permission to rewrite the evidence.
+
+## How it works
+
+![Several computers sync their AI chats and Git metadata over Tailscale to one central archive, which serves the web app, workload calendar, summaries, and a planned MCP.](docs/images/how-it-works.svg)
+
+Each computer reads its own chat and Git sources without modifying them. A small sync
+helper sends that evidence over a private Tailscale network to one PostgreSQL archive. The web
+app and derived jobs run on the central computer.
+
+You can also run everything on one computer without Tailscale. Add Tailscale only when
+you want to connect another machine.
+
+## Try it on one computer
+
+You need Python 3.12 or 3.13, [uv](https://docs.astral.sh/uv/), and Docker with Compose.
+[Bun](https://bun.sh/) is needed to build the web interface.
 
 ```bash
 git clone https://github.com/MiddleDistances/23-open-chat-reviewer.git
@@ -49,83 +72,91 @@ scripts/chatreview-sync.sh
 scripts/chatreview-web.sh
 ```
 
-When Tailscale is connected, open `http://<this-machine's-MagicDNS-name>:8765` from an
-allowed tailnet device. Otherwise open <http://127.0.0.1:8765>. `bootstrap.sh` creates a private
-`.chatreview/archive.env`, starts the bundled PostgreSQL/pgvector database, applies
-migrations, and builds the UI when Bun is available. Its automatic network mode prefers
-Tailscale and generates a random database password; set
-`CHATREVIEW_INIT_NETWORK=loopback` to force a single-computer installation.
+Open the URL printed by `bootstrap.sh`. By default, Open Chat Reviewer looks for:
 
-Review `.chatreview/archive.env` before the first sync. The generated defaults scan
-`~/.codex`, `~/.claude`, `~/.gemini`, and `~/Projects` for Git repositories. Override
-any root with the corresponding `CHATREVIEW_*_ROOT` variable. Source roots are inputs
-only; Open Chat Reviewer writes to PostgreSQL and the Git-ignored `.chatreview/` runtime
-directory.
+- Codex in `~/.codex`
+- Claude in `~/.claude`
+- Gemini in `~/.gemini`
+- Git repositories under `~/Projects`
 
-For a first installation, read [Setup, scope, and storage](docs/SETUP_AND_STORAGE.md)
-before syncing. It explains the central/writer choice, per-machine history scope,
-reasoning retention/search/embedding controls, progress states, and exactly what Git
-evidence is stored. A second computer does not see the first computer's local archive
-until it is configured as a writer for the same central PostgreSQL database.
+The Setup page lets you choose the history range, providers, reasoning policy, and local
+embedding model before starting a larger build.
 
-## Everyday commands
+## Add another computer
+
+1. Install Tailscale and sign in on both computers.
+2. On the central computer, open **Setup → Add another machine**. Setup shows the exact
+   command that creates a private connection file.
+3. Transfer that file privately, then run the install command shown by Setup on
+   the new computer:
+
+```bash
+uv sync
+uv run open-chat-reviewer writer install ~/Downloads/my-computer.env
+```
+
+The installer checks the connection, previews local sources, performs the first resumable
+sync, and installs the recurring sync schedule. The full beginner and security guide is
+[Connect several computers with Tailscale](docs/TAILSCALE_MULTI_MACHINE.md).
+
+## What is available today
+
+- Cross-machine Codex, Claude, Gemini, and Git ingestion
+- Exact search, conversation traces, evidence links, and annotations
+- Optional local semantic search and corpus map
+- Workload calendar and draft timesheet export
+- Local Qwen summaries or existing coding-agent CLI subscriptions
+- Guided multi-computer setup over Tailscale
+- Resumable sync with source hashes and machine attribution
+
+Still in progress:
+
+- A small, read-only public MCP for archive recall
+- Packaged installers that remove the Git/Python setup for non-technical users
+- Faster time-filtered semantic maps and clearer projection lifecycle controls
+- One-screen backup, restore, update, and uninstall guidance
+
+## What is stored
+
+Open Chat Reviewer stores configured chat records and their provenance, normalized
+conversation events, and rebuildable views such as semantic vectors and workload
+snapshots. Git ingestion stores repository and commit metadata, changed filenames, and
+status — **not Git blobs, patches, or complete file contents**.
+
+Source directories are read-only. Runtime configuration, logs, and credentials stay in
+the Git-ignored `.chatreview/` directory. Read [Setup, scope, and storage](docs/SETUP_AND_STORAGE.md)
+for the exact retention and reasoning choices.
+
+## Privacy and security
+
+Chat archives can contain private code, prompts, paths, and credentials. Open Chat
+Reviewer has no built-in public-user authentication. Keep it on loopback or a restricted
+Tailscale network; do not expose the web or PostgreSQL ports to the public internet.
+
+Embedding models can be downloaded from Hugging Face and then run locally. Summary CLI
+providers reuse the login already managed by their own CLI and do not give Open Chat
+Reviewer the underlying token.
+
+Read [SECURITY.md](SECURITY.md) before connecting several machines.
+
+## Useful commands
 
 ```bash
 uv run open-chat-reviewer doctor
-uv run open-chat-reviewer inventory
-uv run open-chat-reviewer sync
-uv run open-chat-reviewer refresh
 uv run open-chat-reviewer status
 uv run open-chat-reviewer search "database migration"
 uv run open-chat-reviewer timesheets export --format csv
-uv run open-chat-reviewer worker once
 ```
 
-`chatreview` remains as a compatibility command. New documentation uses
-`open-chat-reviewer`.
+## Detailed documentation
 
-## Summarization providers
-
-Summaries are off by default. The recommended privacy-first setup is a local Qwen
-instruct model behind an OpenAI-compatible endpoint:
-
-```bash
-export CHATREVIEW_ENABLE_SUMMARIES=1
-export CHATREVIEW_SUMMARY_PROVIDER=openai-compatible
-export CHATREVIEW_SUMMARY_MODEL=Qwen/Qwen3-30B-A3B-Instruct-2507
-export CHATREVIEW_SUMMARY_BASE_URL=http://127.0.0.1:8000/v1
-uv run open-chat-reviewer resume refresh
-```
-
-The same adapter supports model services that expose compatible Chat Completions APIs,
-including Alibaba Model Studio, Hugging Face Inference Providers, OpenRouter, and OpenAI.
-Anthropic has a native adapter. A `module:factory` plugin seam supports any other provider
-without changing the archive core. Keep API keys only in `.chatreview/archive.env`; the
-CLI does not accept keys as command-line arguments.
-
-See [Model providers](docs/MODEL_PROVIDERS.md) for configuration and the provider
-contract.
-
-## Workload and day tracking
-
-The workload module combines chat sessions with optional Git evidence. It builds
-immutable snapshots, splits intervals at midnight in the configured IANA timezone, and
-unions overlapping intervals for the same contributor/project before reporting totals.
-It is a record-organizing aid, not payroll or billing authority.
-
-Disable Git discovery with `CHATREVIEW_ENABLE_GIT=0` or `--no-git`. Configure local day
-boundaries with `CHATREVIEW_TIMEZONE`, for example `Australia/Perth`.
-
-## Architecture and operations
-
-- [Architecture](docs/ARCHITECTURE.md)
 - [Setup, scope, and storage](docs/SETUP_AND_STORAGE.md)
+- [Connect several computers with Tailscale](docs/TAILSCALE_MULTI_MACHINE.md)
+- [Architecture](docs/ARCHITECTURE.md)
+- [Sync and recovery](docs/SYNC_OPERATIONS.md)
+- [Summary model providers](docs/MODEL_PROVIDERS.md)
 - [Source adapters](docs/SOURCE_ADAPTERS.md)
-- [Sync and worker operations](docs/SYNC_OPERATIONS.md)
-- [Tailscale central archive and remote writers](docs/TAILSCALE_MULTI_MACHINE.md)
 - [Deployment](docs/DEPLOYMENT.md)
-- [Audit and extraction boundary](docs/AUDIT.md)
-- [Visual design language](design.md)
 
 ## Development
 
@@ -136,16 +167,8 @@ uv run pytest -q
 cd web && bun install --frozen-lockfile && bun run test && bun run build
 ```
 
-Database tests use `CHATREVIEW_TEST_DATABASE_URL`; by default they expect PostgreSQL on
-port `6543`. See [CONTRIBUTING.md](CONTRIBUTING.md) for a complete setup.
-
-## Privacy and security
-
-Raw chat archives often contain source code, paths, prompts, and credentials. Automatic
-bootstrap binds to an active Tailscale interface when available and otherwise falls back
-to loopback. The web app has no built-in multi-user authentication. Do not expose it to
-the public internet; restrict both the UI and PostgreSQL ports with tailnet grants and read
-[SECURITY.md](SECURITY.md) before deployment.
+The project is alpha software. Contributions and plain-language setup feedback are very
+welcome; see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 

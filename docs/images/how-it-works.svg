@@ -1,0 +1,90 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="620" viewBox="0 0 1200 620" role="img" aria-labelledby="title description">
+  <title id="title">How Open Chat Reviewer connects several computers to one private archive</title>
+  <desc id="description">A laptop, desktop, and Linux box sync Codex, Claude, Gemini, and Git evidence over Tailscale to one PostgreSQL archive. The archive serves a web app, workload calendar, local summaries, and a planned MCP interface.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#55708f"/>
+    </marker>
+    <style>
+      .bg { fill: #f7f9fc; }
+      .card { fill: #ffffff; stroke: #cbd7e6; stroke-width: 2; }
+      .source { fill: #eef5ff; stroke: #91b3df; }
+      .central { fill: #16385f; stroke: #16385f; }
+      .output { fill: #eff8f2; stroke: #9ac7a5; }
+      .planned { fill: #fff8e8; stroke: #d5ad53; stroke-dasharray: 8 6; }
+      .line { fill: none; stroke: #55708f; stroke-width: 3; marker-end: url(#arrow); }
+      .line-soft { fill: none; stroke: #8ba0b8; stroke-width: 2; stroke-dasharray: 6 6; marker-end: url(#arrow); }
+      .title { fill: #17283d; font: 700 25px ui-sans-serif, system-ui, sans-serif; }
+      .label { fill: #17283d; font: 700 19px ui-sans-serif, system-ui, sans-serif; }
+      .body { fill: #516174; font: 15px ui-sans-serif, system-ui, sans-serif; }
+      .tiny { fill: #66778b; font: 13px ui-sans-serif, system-ui, sans-serif; }
+      .white-label { fill: #ffffff; font: 700 22px ui-sans-serif, system-ui, sans-serif; }
+      .white-body { fill: #d9e6f4; font: 15px ui-sans-serif, system-ui, sans-serif; }
+      .pill { fill: #dceafb; }
+      .pill-text { fill: #315c8f; font: 600 13px ui-sans-serif, system-ui, sans-serif; }
+    </style>
+  </defs>
+
+  <rect class="bg" width="1200" height="620" rx="24"/>
+  <text class="title" x="48" y="52">One private memory for work spread across several computers</text>
+  <text class="body" x="48" y="80">Each computer reads its own chat and Git history. One central archive makes it searchable and useful.</text>
+
+  <g aria-label="Source computers">
+    <rect class="card source" x="48" y="130" width="240" height="110" rx="14"/>
+    <text class="label" x="72" y="168">Laptop</text>
+    <text class="body" x="72" y="196">Codex · Claude · Gemini</text>
+    <text class="tiny" x="72" y="220">Git commits and paths</text>
+
+    <rect class="card source" x="48" y="260" width="240" height="110" rx="14"/>
+    <text class="label" x="72" y="298">Desktop</text>
+    <text class="body" x="72" y="326">Codex · Claude · Gemini</text>
+    <text class="tiny" x="72" y="350">Git commits and paths</text>
+
+    <rect class="card source" x="48" y="390" width="240" height="110" rx="14"/>
+    <text class="label" x="72" y="428">Linux box</text>
+    <text class="body" x="72" y="456">Codex · Claude · Gemini</text>
+    <text class="tiny" x="72" y="480">Git commits and paths</text>
+  </g>
+
+  <path class="line" d="M 288 185 C 360 185, 350 270, 432 290"/>
+  <path class="line" d="M 288 315 L 432 315"/>
+  <path class="line" d="M 288 445 C 360 445, 350 360, 432 340"/>
+  <rect class="pill" x="306" y="280" width="116" height="28" rx="14"/>
+  <text class="pill-text" x="324" y="299">Tailscale sync</text>
+
+  <g aria-label="Central archive">
+    <rect class="central" x="432" y="205" width="310" height="220" rx="18"/>
+    <text class="white-label" x="466" y="250">Central archive</text>
+    <text class="white-body" x="466" y="280">PostgreSQL + pgvector</text>
+    <line x1="466" y1="302" x2="708" y2="302" stroke="#51749a"/>
+    <text class="white-body" x="466" y="332">Chats and source evidence</text>
+    <text class="white-body" x="466" y="360">Git metadata, not file contents</text>
+    <text class="white-body" x="466" y="388">Searchable and resumable</text>
+  </g>
+
+  <path class="line" d="M 742 255 C 790 255, 790 175, 828 175"/>
+  <path class="line" d="M 742 315 L 828 315"/>
+  <path class="line" d="M 742 375 C 790 375, 790 455, 828 455"/>
+
+  <g aria-label="Useful outputs">
+    <rect class="card output" x="828" y="115" width="324" height="120" rx="14"/>
+    <text class="label" x="856" y="155">Pick up where you left off</text>
+    <text class="body" x="856" y="184">Search chats and see current work</text>
+    <text class="tiny" x="856" y="208">in one web app</text>
+
+    <rect class="card output" x="828" y="255" width="324" height="120" rx="14"/>
+    <text class="label" x="856" y="295">Understand your workload</text>
+    <text class="body" x="856" y="324">Calendar and draft timesheets from</text>
+    <text class="tiny" x="856" y="348">chat activity plus Git commits</text>
+
+    <rect class="card planned" x="828" y="395" width="324" height="120" rx="14"/>
+    <text class="label" x="856" y="435">Let other agents look back</text>
+    <text class="body" x="856" y="464">Read-only archive MCP</text>
+    <text class="tiny" x="856" y="488">planned for the public release</text>
+  </g>
+
+  <path class="line-soft" d="M 586 425 L 586 548 L 828 548"/>
+  <rect class="card" x="408" y="525" width="420" height="62" rx="14"/>
+  <text class="label" x="436" y="553">Summaries on your terms</text>
+  <text class="tiny" x="436" y="576">Local model or an existing Codex, Claude, or Gemini CLI login</text>
+</svg>
