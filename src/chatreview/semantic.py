@@ -5,8 +5,9 @@ import math
 import re
 import tempfile
 from collections import Counter, defaultdict
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -19,8 +20,8 @@ from chatreview.search import SearchFilters
 
 DEFAULT_MODEL = "Qwen/Qwen3-Embedding-0.6B"
 DEFAULT_MODEL_REVISION = "72bb2d1e482afe83dcebe9496edc693ad1967a0f"
-SEMANTIC_VERSION = 6
-SEMANTIC_POLICY = "postgresql-pgvector-conversation-and-episode-runs-v1"
+SEMANTIC_VERSION = 7
+SEMANTIC_POLICY = "postgresql-pgvector-conversation-and-episode-runs-v2"
 WORD_PATTERN = re.compile(r"[A-Za-z][A-Za-z0-9_-]{2,}")
 STOP_WORDS = {
     "the",
@@ -65,6 +66,194 @@ STOP_WORDS = {
     "message",
 }
 
+MESSAGE_KINDS = (
+    "user-message",
+    "assistant-message",
+    "message",
+    "agent-message",
+    "pasted-content",
+    "error",
+)
+REASONING_KINDS = ("reasoning",)
+REASONING_SUMMARY_KINDS = ("reasoning-summary",)
+TOOL_KINDS = (
+    "tool-input",
+    "tool-output",
+    "tool-input-display",
+    "tool-output-display",
+    "compacted-tool-input",
+    "compacted-tool-output",
+)
+CONTEXT_KINDS = ("context-summary", "compaction-summary", "last-prompt", "ai-title")
+
+
+@dataclass(frozen=True, slots=True)
+class SemanticPolicy:
+    """Pure, serialisable controls for building a semantic corpus.
+
+    The defaults intentionally match the original conversation profile: reasoning and
+    context records were included, while tool payloads and Gemini reasoning summaries
+    were not.  A policy affects only the derived semantic projection; raw evidence and
+    lexical search remain unchanged.
+    """
+
+    include_reasoning: bool = True
+    include_reasoning_summaries: bool = False
+    include_tool_content: bool = False
+    include_context: bool = True
+    providers: tuple[str, ...] = ()
+    projects: tuple[str, ...] = ()
+    date_from: str | date | datetime | None = None
+    date_to: str | date | datetime | None = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "providers", _normalise_scope_values(self.providers))
+        object.__setattr__(self, "projects", _normalise_scope_values(self.projects))
+        if self.date_from is not None:
+            object.__setattr__(self, "date_from", _date_scope_value(self.date_from))
+        if self.date_to is not None:
+            object.__setattr__(self, "date_to", _date_scope_value(self.date_to))
+        if self.date_from and self.date_to and str(self.date_from) > str(self.date_to):
+            raise ValueError("date_from must not be after date_to")
+
+    @property
+    def kinds(self) -> frozenset[str]:
+        """Return the text-unit kinds admitted by this policy."""
+
+        kinds = set(MESSAGE_KINDS)
+        if self.include_reasoning:
+            kinds.update(REASONING_KINDS)
+        if self.include_reasoning_summaries:
+            kinds.update(REASONING_SUMMARY_KINDS)
+        if self.include_tool_content:
+            kinds.update(TOOL_KINDS)
+        if self.include_context:
+            kinds.update(CONTEXT_KINDS)
+        return frozenset(kinds)
+
+    @property
+    def include_reasoning_summary(self) -> bool:
+        """Singular compatibility alias for UI/config callers."""
+
+        return self.include_reasoning_summaries
+
+    def allows(self, row: Mapping[str, Any]) -> bool:
+        """Return whether a normalised text-unit row belongs in the projection."""
+
+        kind = str(row.get("kind") or row.get("event_type") or "")
+        if kind not in self.kinds:
+            return False
+        provider = row.get("provider")
+        if self.providers and str(provider or "") not in self.providers:
+            return False
+        project_values = {
+            str(row.get(key) or "")
+            for key in ("project", "project_key", "project_name")
+            if row.get(key)
+        }
+        if self.projects and not project_values.intersection(self.projects):
+            return False
+        timestamp = row.get("timestamp")
+        timestamp_date = _date_scope_value(timestamp) if timestamp is not None else None
+        if self.date_from and (timestamp_date is None or timestamp_date < str(self.date_from)):
+            return False
+        if self.date_to and (timestamp_date is None or timestamp_date > str(self.date_to)):
+            return False
+        return True
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return JSON-safe configuration suitable for a semantic run manifest."""
+
+        return semantic_policy_to_dict(self)
+
+    @classmethod
+    def from_dict(cls, value: Mapping[str, Any] | None) -> SemanticPolicy:
+        """Build a policy from persisted JSON, accepting the singular UI spelling."""
+
+        return semantic_policy_from_dict(value)
+
+
+def semantic_policy_to_dict(policy: SemanticPolicy) -> dict[str, Any]:
+    """Serialise a policy without leaking dataclass or date implementation details."""
+
+    return {
+        "include_reasoning": policy.include_reasoning,
+        "include_reasoning_summaries": policy.include_reasoning_summaries,
+        "include_tool_content": policy.include_tool_content,
+        "include_context": policy.include_context,
+        "providers": list(policy.providers),
+        "projects": list(policy.projects),
+        "date_from": policy.date_from,
+        "date_to": policy.date_to,
+    }
+
+
+def semantic_policy_from_dict(value: Mapping[str, Any] | None) -> SemanticPolicy:
+    """Deserialise a persisted policy while tolerating older/incomplete manifests."""
+
+    if not value or not isinstance(value, Mapping):
+        return SemanticPolicy()
+    return SemanticPolicy(
+        include_reasoning=bool(value.get("include_reasoning", True)),
+        include_reasoning_summaries=bool(
+            value.get("include_reasoning_summaries", value.get("include_reasoning_summary", False))
+        ),
+        include_tool_content=bool(value.get("include_tool_content", False)),
+        include_context=bool(value.get("include_context", True)),
+        providers=_normalise_scope_values(value.get("providers", ())),
+        projects=_normalise_scope_values(value.get("projects", ())),
+        date_from=value.get("date_from"),
+        date_to=value.get("date_to"),
+    )
+
+
+class SemanticDocumentBuilder:
+    """Build bounded semantic documents and useful previews from normalised rows.
+
+    This is deliberately database-free.  The deriver and API can share the same
+    selection and preview rules, while PostgreSQL remains responsible for storing
+    evidence and the resulting projection.
+    """
+
+    def __init__(self, policy: SemanticPolicy | None = None) -> None:
+        self.policy = policy or SemanticPolicy()
+
+    def build_segments(
+        self,
+        rows: Sequence[Mapping[str, Any]],
+        *,
+        max_chars: int,
+    ) -> list[dict[str, Any]]:
+        """Select policy-eligible rows and group them into event-bounded segments."""
+
+        return _event_segments(list(rows), max_chars, policy=self.policy)
+
+    def build_windows(
+        self,
+        rows: Sequence[Mapping[str, Any]],
+        *,
+        max_chars: int,
+        overlap_events: int = 1,
+    ) -> list[dict[str, Any]]:
+        """Build rolling windows, each carrying a useful tooltip preview."""
+
+        return _rolling_windows(
+            self.build_segments(rows, max_chars=max_chars),
+            max_chars=max_chars,
+            overlap_events=overlap_events,
+        )
+
+    @staticmethod
+    def preview(document: str, *, max_chars: int = 300) -> str:
+        """Extract a readable body from a legacy semantic document.
+
+        New windows use event metadata when selecting their preview.  This fallback
+        keeps old runs readable by dropping one leading ``[role]`` marker instead of
+        showing a repeated headline/header token.
+        """
+
+        return _preview_body(document, max_chars=max_chars)
+
 
 @dataclass(slots=True)
 class DeriveOptions:
@@ -79,6 +268,7 @@ class DeriveOptions:
     profile: str = "conversation"
     offline: bool = False
     force: bool = False
+    policy: SemanticPolicy | None = None
 
 
 @dataclass(slots=True)
@@ -104,12 +294,13 @@ class SemanticDeriver:
     def run(self, options: DeriveOptions | None = None) -> DeriveSummary:
         options = options or DeriveOptions()
         _validate_options(options)
+        policy = options.policy or SemanticPolicy()
         np, hdbscan, umap, SentenceTransformer = _semantic_imports()
         self.settings.ensure_output_dirs()
         with database(self.settings.database_url) as connection:
             config = {
                 "semantic_version": SEMANTIC_VERSION,
-                "semantic_policy": SEMANTIC_POLICY,
+                "semantic_policy_version": SEMANTIC_POLICY,
                 "corpus_revision": corpus_revision(connection),
                 "profile": options.profile,
                 "model_name": options.model_name,
@@ -117,6 +308,7 @@ class SemanticDeriver:
                 "dimensions": options.dimensions,
                 "window_chars": options.window_chars,
                 "overlap_events": options.overlap_events,
+                "semantic_policy": policy.to_dict(),
             }
             if options.profile == "episodes":
                 episode_generation = connection.execute(
@@ -176,7 +368,7 @@ class SemanticDeriver:
             vectors: Any | None = None
             try:
                 self.progress("Building deterministic semantic windows")
-                window_count = self._build_windows(connection, run_id, options)
+                window_count = self._build_windows(connection, run_id, options, policy=policy)
                 connection.execute(
                     "UPDATE semantic_runs SET chunk_count=?, expected_count=? WHERE id=?",
                     (window_count, window_count, run_id),
@@ -405,28 +597,51 @@ class SemanticDeriver:
         connection.commit()
         return run_id
 
-    def _build_windows(self, connection: Session, run_id: int, options: DeriveOptions) -> int:
+    def _build_windows(
+        self,
+        connection: Session,
+        run_id: int,
+        options: DeriveOptions,
+        *,
+        policy: SemanticPolicy | None = None,
+    ) -> int:
+        policy = policy or options.policy or SemanticPolicy()
         if options.profile == "episodes":
             return self._build_episode_windows(
                 connection,
                 run_id,
                 max_chars=options.window_chars,
+                policy=policy,
             )
-        profile_clause = _semantic_profile_clause(options.profile)
+        profile_clause = _semantic_profile_clause(options.profile, policy)
+        scope_clauses, scope_parameters = _semantic_scope_clauses(
+            policy,
+            session_alias="s",
+            event_alias="e",
+            project_alias="project",
+        )
         sessions = connection.execute(
-            """
+            f"""
             SELECT DISTINCT s.id, s.session_key
             FROM sessions s JOIN events e ON e.session_id=s.id
             JOIN text_units t ON t.event_id=e.id
+            JOIN sources sf ON sf.id=e.source_id
+            LEFT JOIN projects project ON project.id=s.project_id
+            WHERE e.canonical_event_id IS NULL
+              AND sf.source_kind<>'history'
+              AND ({profile_clause})
+              AND {" AND ".join(scope_clauses)}
             ORDER BY s.id
-            """
+            """,
+            scope_parameters,
         ).fetchall()
         total = 0
         for session_index, session in enumerate(sessions, start=1):
             rows = connection.execute(
                 f"""
                 SELECT e.id AS event_id, e.role, e.event_type, e.subtype, e.timestamp,
-                       t.kind, t.label,
+                       t.kind, t.label, s.provider, s.project,
+                       project.project_key, project.name AS project_name,
                        CASE
                            WHEN t.kind='tool-input' THEN substr(c.text, 1, 2500)
                            WHEN t.kind='tool-output' THEN substr(c.text, 1, 3000)
@@ -436,15 +651,21 @@ class SemanticDeriver:
                 JOIN sources sf ON sf.id=e.source_id
                 JOIN text_units t ON t.event_id=e.id
                 JOIN contents c ON c.id=t.content_id
+                JOIN sessions s ON s.id=e.session_id
+                LEFT JOIN projects project ON project.id=s.project_id
                 WHERE e.session_id=?
                   AND e.canonical_event_id IS NULL
                   AND sf.source_kind<>'history'
                   AND ({profile_clause})
+                  AND {" AND ".join(scope_clauses)}
                 ORDER BY e.timestamp NULLS FIRST, e.ordinal, t.unit_index
                 """,
-                (session["id"],),
+                (session["id"], *scope_parameters),
             ).fetchall()
-            event_segments = _event_segments(rows, options.window_chars)
+            event_segments = SemanticDocumentBuilder(policy).build_segments(
+                rows,
+                max_chars=options.window_chars,
+            )
             windows = _rolling_windows(
                 event_segments,
                 max_chars=options.window_chars,
@@ -503,15 +724,40 @@ class SemanticDeriver:
         run_id: int,
         *,
         max_chars: int,
+        policy: SemanticPolicy | None = None,
     ) -> int:
+        policy = policy or SemanticPolicy()
+        clauses = ["true"]
+        parameters: list[Any] = []
+        if policy.providers:
+            placeholders = ", ".join("?" for _ in policy.providers)
+            clauses.append(f"s.provider IN ({placeholders})")
+            parameters.extend(policy.providers)
+        if policy.projects:
+            placeholders = ", ".join("?" for _ in policy.projects)
+            clauses.append(
+                f"(s.project IN ({placeholders}) OR project.project_key IN ({placeholders}) "
+                f"OR project.name IN ({placeholders}))"
+            )
+            parameters.extend([*policy.projects, *policy.projects, *policy.projects])
+        if policy.date_from:
+            clauses.append("COALESCE(ep.ended_at, ep.started_at)::date >= ?::date")
+            parameters.append(policy.date_from)
+        if policy.date_to:
+            clauses.append("COALESCE(ep.started_at, ep.ended_at)::date <= ?::date")
+            parameters.append(policy.date_to)
         episodes = connection.execute(
-            """
+            f"""
             SELECT ep.id, ep.episode_key, ep.session_id, ep.sequence_no,
                    ep.first_event_id, ep.last_event_id, c.text AS document
             FROM episodes ep
             JOIN contents c ON c.id=ep.document_content_id
+            JOIN sessions s ON s.id=ep.session_id
+            LEFT JOIN projects project ON project.id=s.project_id
+            WHERE {" AND ".join(clauses)}
             ORDER BY ep.session_id, ep.sequence_no, ep.id
-            """
+            """,
+            parameters,
         ).fetchall()
         for vector_ordinal, episode in enumerate(episodes):
             window_key = stable_hash(f"episode\0{episode['episode_key']}")
@@ -900,6 +1146,9 @@ def map_points(
     provider: str | None = None,
     project: str | None = None,
     cluster_id: int | None = None,
+    date_from: str | date | datetime | None = None,
+    date_to: str | date | datetime | None = None,
+    policy: SemanticPolicy | None = None,
     limit: int = 200_000,
 ) -> dict[str, Any]:
     if run_id is None:
@@ -920,27 +1169,61 @@ def map_points(
         if run is None:
             return {"run": None, "points": [], "clusters": []}
         run_id = int(run["id"])
+    run_config_row = connection.execute(
+        "SELECT config_json FROM semantic_runs WHERE id=?", (run_id,)
+    ).fetchone()
+    run_policy = semantic_policy_from_dict(
+        (_config_json(run_config_row["config_json"]) if run_config_row else {}).get(
+            "semantic_policy"
+        )
+    )
+    preview_policy = policy or run_policy
     clauses = ["w.run_id=?", "w.projection_x IS NOT NULL"]
     parameters: list[Any] = [run_id]
     if provider:
         clauses.append("s.provider=?")
         parameters.append(provider)
     if project:
-        clauses.append("s.project=?")
-        parameters.append(project)
+        clauses.append("(s.project=? OR project.project_key=? OR project.name=?)")
+        parameters.extend([project, project, project])
     if cluster_id is not None:
         clauses.append("w.cluster_id=?")
         parameters.append(cluster_id)
+    if date_from is not None:
+        clauses.append(
+            "EXISTS ("
+            "SELECT 1 FROM events date_event "
+            "WHERE date_event.session_id=w.session_id "
+            "AND date_event.id BETWEEN w.first_event_id AND w.last_event_id "
+            "AND date_event.timestamp::date >= ?::date"
+            ")"
+        )
+        parameters.append(_date_scope_value(date_from))
+    if date_to is not None:
+        clauses.append(
+            "EXISTS ("
+            "SELECT 1 FROM events date_event "
+            "WHERE date_event.session_id=w.session_id "
+            "AND date_event.id BETWEEN w.first_event_id AND w.last_event_id "
+            "AND date_event.timestamp::date <= ?::date"
+            ")"
+        )
+        parameters.append(_date_scope_value(date_to))
     total = int(
         connection.execute(
             f"""
-            SELECT COUNT(*) FROM semantic_windows w JOIN sessions s ON s.id=w.session_id
+            SELECT COUNT(*)
+            FROM semantic_windows w
+            JOIN sessions s ON s.id=w.session_id
+            LEFT JOIN projects project ON project.id=s.project_id
             WHERE {" AND ".join(clauses)}
             """,
             parameters,
         ).fetchone()[0]
     )
     stride = max(1, math.ceil(total / max(limit, 1)))
+    preview_clause = _semantic_policy_clause(preview_policy, alias="pt")
+    preview_priority = _preview_priority_sql(alias="pt")
     point_parameters = [*parameters, stride, min(total, limit)]
     points = [
         {key: row[key] for key in row.keys()}
@@ -950,11 +1233,30 @@ def map_points(
                    ep.episode_key,
                    w.projection_x AS x, w.projection_y AS y,
                    s.id AS session_id, s.provider, s.project,
-                   substr(c.text, 1, 300) AS preview
+                   COALESCE(semantic_preview.preview, substr(c.text, 1, 300)) AS preview,
+                   COALESCE(first_event.timestamp, last_event.timestamp) AS timestamp,
+                   w.first_event_id, w.last_event_id
             FROM semantic_windows w
             JOIN sessions s ON s.id=w.session_id
+            LEFT JOIN projects project ON project.id=s.project_id
             JOIN contents c ON c.id=w.content_id
             LEFT JOIN episodes ep ON ep.id=w.episode_id
+            JOIN events first_event ON first_event.id=w.first_event_id
+            JOIN events last_event ON last_event.id=w.last_event_id
+            LEFT JOIN LATERAL (
+                SELECT substr(pc.text, 1, 300) AS preview
+                FROM events pe
+                JOIN text_units pt ON pt.event_id=pe.id
+                JOIN contents pc ON pc.id=pt.content_id
+                JOIN sources ps ON ps.id=pe.source_id
+                WHERE pe.session_id=w.session_id
+                  AND pe.id BETWEEN w.first_event_id AND w.last_event_id
+                  AND pe.canonical_event_id IS NULL
+                  AND ps.source_kind<>'history'
+                  AND ({preview_clause})
+                ORDER BY {preview_priority}, pe.timestamp NULLS FIRST, pe.ordinal, pt.unit_index
+                LIMIT 1
+            ) semantic_preview ON true
             WHERE {" AND ".join(clauses)} AND (w.vector_ordinal % ?)=0
             ORDER BY w.vector_ordinal LIMIT ?
             """,
@@ -992,30 +1294,103 @@ def map_points(
     }
 
 
-def _event_segments(rows: list[Row], max_chars: int) -> list[dict[str, Any]]:
-    grouped: list[tuple[int, list[str]]] = []
+def _event_segments(
+    rows: list[Mapping[str, Any]],
+    max_chars: int,
+    *,
+    policy: SemanticPolicy | None = None,
+) -> list[dict[str, Any]]:
+    if max_chars < 1:
+        raise ValueError("max_chars must be positive")
+    selected = [row for row in rows if policy is None or policy.allows(row)]
+    grouped: list[tuple[int, list[dict[str, Any]]]] = []
     current_event: int | None = None
-    current_parts: list[str] = []
-    for row in rows:
+    current_parts: list[dict[str, Any]] = []
+    for row in selected:
         event_id = int(row["event_id"])
         if current_event is not None and event_id != current_event:
             grouped.append((current_event, current_parts))
             current_parts = []
         current_event = event_id
-        header = row["role"] or row["kind"] or row["event_type"]
-        current_parts.append(f"[{header}]\n{row['text']}")
+        header = row.get("role") or row.get("kind") or row.get("event_type") or "event"
+        text = str(row.get("text") or "")
+        current_parts.append(
+            {
+                "kind": str(row.get("kind") or row.get("event_type") or ""),
+                "text": f"[{header}]\n{text}",
+            }
+        )
     if current_event is not None:
         grouped.append((current_event, current_parts))
 
     segments = []
     for event_id, parts in grouped:
-        text = "\n\n".join(parts)
+        text = "\n\n".join(part["text"] for part in parts)
+        candidates = _preview_candidates(parts)
         if len(text) <= max_chars:
-            segments.append({"event_id": event_id, "text": text})
+            segments.append(
+                {
+                    "event_id": event_id,
+                    "text": text,
+                    "preview_candidates": candidates,
+                }
+            )
             continue
         for start in range(0, len(text), max_chars):
-            segments.append({"event_id": event_id, "text": text[start : start + max_chars]})
+            chunk = text[start : start + max_chars]
+            segments.append(
+                {
+                    "event_id": event_id,
+                    "text": chunk,
+                    "preview_candidates": _preview_candidates(
+                        [{"kind": part["kind"], "text": chunk} for part in parts]
+                    ),
+                }
+            )
     return segments
+
+
+def _preview_candidates(parts: Sequence[Mapping[str, Any]]) -> list[tuple[int, str]]:
+    candidates: list[tuple[int, str]] = []
+    for part in parts:
+        kind = str(part.get("kind") or "")
+        value = _preview_body(str(part.get("text") or ""), max_chars=10_000)
+        if not value:
+            continue
+        if kind in MESSAGE_KINDS:
+            priority = 0
+        elif kind in REASONING_KINDS or kind in REASONING_SUMMARY_KINDS:
+            priority = 1
+        elif kind in TOOL_KINDS:
+            priority = 2
+        else:
+            priority = 3
+        candidates.append((priority, value))
+    return candidates
+
+
+def _window_preview(segments: Sequence[Mapping[str, Any]], *, max_chars: int = 300) -> str:
+    candidates: list[tuple[int, int, str]] = []
+    for index, segment in enumerate(segments):
+        for priority, value in segment.get("preview_candidates", []):
+            candidates.append((int(priority), index, str(value)))
+    if not candidates:
+        return _preview_body(
+            "\n\n".join(str(segment.get("text") or "") for segment in segments),
+            max_chars=max_chars,
+        )
+    _, _, value = min(candidates, key=lambda candidate: (candidate[0], candidate[1]))
+    return value[:max_chars]
+
+
+def _preview_body(document: str, *, max_chars: int = 300) -> str:
+    if max_chars < 1:
+        return ""
+    value = document.strip()
+    # Semantic windows traditionally start each event with ``[role]``.  The role is
+    # useful to the embedder but is noise in a point tooltip, so expose the body.
+    value = re.sub(r"^\[[^\]\n]{1,80}\]\s*\n", "", value, count=1)
+    return value[:max_chars]
 
 
 def _episode_embedding_text(document: str, *, max_chars: int) -> str:
@@ -1079,6 +1454,7 @@ def _rolling_windows(
                 "first_event_id": current[0]["event_id"],
                 "last_event_id": current[-1]["event_id"],
                 "text": "\n\n".join(item["text"] for item in current),
+                "preview": _window_preview(current),
             }
         )
 
@@ -1265,19 +1641,100 @@ def _target_devices(value: str | None) -> list[str]:
     return [device.strip() for device in value.split(",") if device.strip()]
 
 
-def _semantic_profile_clause(profile: str) -> str:
-    conversation = """
-        t.kind IN (
-            'user-message', 'assistant-message', 'message', 'reasoning',
-            'agent-message', 'context-summary', 'compaction-summary',
-            'last-prompt', 'ai-title', 'pasted-content', 'error'
-        )
-    """
+def _semantic_profile_clause(
+    profile: str,
+    policy: SemanticPolicy | None = None,
+    *,
+    alias: str = "t",
+) -> str:
     if profile == "conversation":
-        return conversation
+        return _semantic_policy_clause(policy or SemanticPolicy(), alias=alias)
     if profile == "episodes":
         return "0"
     raise ValueError(f"unknown semantic profile: {profile}")
+
+
+def _semantic_policy_clause(policy: SemanticPolicy, *, alias: str = "t") -> str:
+    """Return a SQL-safe kind predicate for a semantic policy.
+
+    Kinds are selected from fixed provider vocabulary, never interpolated from user
+    input.  Provider/project/date scope is kept separate in
+    :func:`_semantic_scope_clauses` so callers can use the same policy for SQL and
+    pure row-level tests.
+    """
+
+    ordered = list(MESSAGE_KINDS)
+    if policy.include_reasoning:
+        ordered.extend(REASONING_KINDS)
+    if policy.include_reasoning_summaries:
+        ordered.extend(REASONING_SUMMARY_KINDS)
+    if policy.include_tool_content:
+        ordered.extend(TOOL_KINDS)
+    if policy.include_context:
+        ordered.extend(CONTEXT_KINDS)
+    if not ordered:
+        return "FALSE"
+    values = ", ".join(f"'{kind}'" for kind in ordered)
+    return f"{alias}.kind IN ({values})"
+
+
+def _preview_priority_sql(*, alias: str = "pt") -> str:
+    message_values = ", ".join(f"'{kind}'" for kind in MESSAGE_KINDS)
+    reasoning_values = ", ".join(
+        f"'{kind}'" for kind in (*REASONING_KINDS, *REASONING_SUMMARY_KINDS)
+    )
+    tool_values = ", ".join(f"'{kind}'" for kind in TOOL_KINDS)
+    return (
+        f"CASE WHEN {alias}.kind IN ({message_values}) THEN 0 "
+        f"WHEN {alias}.kind IN ({reasoning_values}) THEN 1 "
+        f"WHEN {alias}.kind IN ({tool_values}) THEN 2 ELSE 3 END"
+    )
+
+
+def _semantic_scope_clauses(
+    policy: SemanticPolicy,
+    *,
+    session_alias: str,
+    event_alias: str,
+    project_alias: str,
+) -> tuple[list[str], list[Any]]:
+    clauses = ["true"]
+    parameters: list[Any] = []
+    if policy.providers:
+        placeholders = ", ".join("?" for _ in policy.providers)
+        clauses.append(f"{session_alias}.provider IN ({placeholders})")
+        parameters.extend(policy.providers)
+    if policy.projects:
+        placeholders = ", ".join("?" for _ in policy.projects)
+        clauses.append(
+            f"({session_alias}.project IN ({placeholders}) "
+            f"OR {project_alias}.project_key IN ({placeholders}) "
+            f"OR {project_alias}.name IN ({placeholders}))"
+        )
+        parameters.extend([*policy.projects, *policy.projects, *policy.projects])
+    if policy.date_from:
+        clauses.append(f"{event_alias}.timestamp::date >= ?::date")
+        parameters.append(policy.date_from)
+    if policy.date_to:
+        clauses.append(f"{event_alias}.timestamp::date <= ?::date")
+        parameters.append(policy.date_to)
+    return clauses, parameters
+
+
+def _normalise_scope_values(values: Sequence[Any] | Any) -> tuple[str, ...]:
+    if isinstance(values, str):
+        values = (values,)
+    if values is None:
+        return ()
+    return tuple(dict.fromkeys(str(value).strip() for value in values if str(value).strip()))
+
+
+def _date_scope_value(value: str | date | datetime | Any) -> str:
+    if isinstance(value, datetime):
+        return value.date().isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    return str(value)[:10]
 
 
 def _semantic_imports():
