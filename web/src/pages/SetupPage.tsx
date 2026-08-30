@@ -11,7 +11,6 @@ import {
   Monitor,
   Play,
   Plus,
-  RefreshCw,
   ShieldCheck,
   Sparkles,
   TriangleAlert,
@@ -25,6 +24,11 @@ import {
   formatDuration,
   formatNumber,
 } from "../components/Common";
+import {
+  ConnectionOverview,
+  WriterSetupGuide,
+  type SetupConnection,
+} from "./ConnectionGuide";
 
 export type SetupProvider = "codex" | "claude" | "gemini";
 
@@ -110,6 +114,7 @@ export interface SetupPageProps {
   /** Initial values for the local setup form. Omitted values use the safe defaults below. */
   initialConfig?: Partial<SetupConfig>;
   machines?: SetupMachine[];
+  connection?: SetupConnection | null;
   estimate?: SetupEstimate | null;
   progress?: SetupProgress | null;
   /** Called whenever a form value changes, so the host can persist a draft. */
@@ -122,6 +127,7 @@ export interface SetupPageProps {
   onRefreshMachines?: () => string | void | Promise<string | void>;
   onSelectMachine?: (machineId: string) => void;
   onOpenInstructions?: () => void;
+  onOpenWriterInstructions?: () => void;
   onSelectStep?: (step: SetupStep) => void;
   /** Optional machine-local summary-agent controls owned by the API route. */
   summaryAgent?: ReactNode;
@@ -140,6 +146,7 @@ export const DEFAULT_SETUP_CONFIG: SetupConfig = {
 
 export const SETUP_ACTION_IDS = {
   openGuide: "setup.guide.open",
+  openWriterGuide: "setup.guide.writer",
   addMachine: "setup.machine.add",
   refreshMachines: "setup.machine.refresh",
   previewBuild: "setup.build.preview",
@@ -178,6 +185,7 @@ const STEP_DETAILS: Array<{ id: SetupStep; number: string; label: string; descri
 export default function SetupPage({
   initialConfig,
   machines = [],
+  connection = null,
   estimate = null,
   progress = null,
   onChange,
@@ -187,6 +195,7 @@ export default function SetupPage({
   onRefreshMachines,
   onSelectMachine,
   onOpenInstructions,
+  onOpenWriterInstructions,
   onSelectStep,
   summaryAgent,
 }: SetupPageProps) {
@@ -311,6 +320,8 @@ export default function SetupPage({
         </div>
       </section>
 
+      <ConnectionOverview connection={connection} machineCount={machines.length} />
+
       {summaryAgent}
 
       <nav className="setup-step-cards" aria-label="Archive setup steps">
@@ -401,14 +412,15 @@ export default function SetupPage({
             <span className="setup-inline-note"><Info size={14} aria-hidden="true" /> Already configured it? Open the steps, then check the shared archive.</span>
           </div>
         ) : (
-          <MachineOnboarding
+          <WriterSetupGuide
+            connection={connection}
             checking={action === "refresh-machines"}
-            guideAvailable={Boolean(onOpenInstructions)}
+            guideAvailable={Boolean(onOpenWriterInstructions)}
             refreshAvailable={Boolean(onRefreshMachines)}
             onOpenGuide={() => void runAction(
               "instructions",
-              SETUP_ACTION_IDS.openGuide,
-              onOpenInstructions,
+              SETUP_ACTION_IDS.openWriterGuide,
+              onOpenWriterInstructions,
               "Opening the writer setup guide…",
               "Writer setup guide opened in a new tab.",
             )}
@@ -537,46 +549,6 @@ function ActionNotice({ feedback }: { feedback: ActionFeedback }) {
     >
       <Icon className={feedback.status === "pending" ? "setup-spin" : undefined} size={16} aria-hidden="true" />
       <span><strong>{feedback.status === "pending" ? "Working" : feedback.status === "success" ? "Done" : "Needs attention"}</strong><small>{feedback.message}</small></span>
-    </div>
-  );
-}
-
-function MachineOnboarding({
-  checking,
-  guideAvailable,
-  refreshAvailable,
-  onOpenGuide,
-  onRefresh,
-}: {
-  checking: boolean;
-  guideAvailable: boolean;
-  refreshAvailable: boolean;
-  onOpenGuide: () => void;
-  onRefresh: () => void;
-}) {
-  return (
-    <div className="setup-machine-onboarding" role="group" aria-labelledby="setup-machine-onboarding-title">
-      <div className="setup-machine-onboarding-header">
-        <div>
-          <span className="eyebrow">Add a writer</span>
-          <h3 id="setup-machine-onboarding-title">Connect the other computer, then check here</h3>
-        </div>
-        <Badge tone="neutral">No network scan</Badge>
-      </div>
-      <ol>
-        <li><strong>On the other computer, open the writer setup guide.</strong><span>Install Open Chat Reviewer and connect it to this central archive over Tailscale.</span></li>
-        <li><strong>Run its first writer sync.</strong><span>The source folders stay on that computer and are read-only.</span></li>
-        <li><strong>Come back and check the shared archive.</strong><span>The machine appears after its first successful database registration.</span></li>
-      </ol>
-      <div className="setup-machine-onboarding-actions">
-        <button className="button" id="setup-open-writer-guide" data-action-id={SETUP_ACTION_IDS.openGuide} type="button" disabled={!guideAvailable} onClick={onOpenGuide}>
-          <BookOpen size={15} aria-hidden="true" /> Open writer guide
-        </button>
-        <button className="button button-primary" id="setup-refresh-machines" data-action-id={SETUP_ACTION_IDS.refreshMachines} type="button" disabled={!refreshAvailable || checking} onClick={onRefresh}>
-          {checking ? <LoaderCircle className="setup-spin" size={15} aria-hidden="true" /> : <RefreshCw size={15} aria-hidden="true" />}
-          {checking ? "Checking shared archive…" : "Check shared archive"}
-        </button>
-      </div>
     </div>
   );
 }

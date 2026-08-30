@@ -77,6 +77,12 @@ def test_setup_preview_and_map_date_validation(corpus, monkeypatch) -> None:
     assert machines.json()["network_scan"] is False
     assert machines.json()["machines"][0]["machine_id"] == str(settings.machine_id)
 
+    connection = client.get("/api/setup/connection")
+    assert connection.status_code == 200
+    assert connection.json()["network_scan"] is False
+    assert settings.database_url not in repr(connection.json())
+    assert "password" not in repr(connection.json()).lower()
+
     preview = client.post(
         "/api/setup/preview",
         json={

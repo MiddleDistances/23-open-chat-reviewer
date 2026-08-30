@@ -15,15 +15,19 @@ adapter for the repository's ``Session``/``database`` seam.
 
 from __future__ import annotations
 
+import ipaddress
+import os
 import platform
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
 from typing import Any, Literal, Protocol
+from urllib.parse import parse_qs, urlsplit
 from uuid import UUID
 
 from chatreview.db import database
+from chatreview.network import tailscale_identity
 
 SUPPORTED_PROVIDERS = ("codex", "claude", "gemini", "git")
 """Provider names accepted by a setup plan, in the default display order."""
@@ -478,6 +482,47 @@ class MachineDiscovery:
 
 
 @dataclass(frozen=True, slots=True)
+class SetupConnection:
+    """Credential-free addresses and readiness facts for connecting writers."""
+
+    generated_at: datetime
+    central_machine: MachineIdentity
+    web_url: str
+    web_host: str
+    web_port: int
+    database_local_endpoint: str
+    database_writer_endpoint: str | None
+    database_remote_ready: bool
+    tailscale_connected: bool
+    tailscale_ipv4: str | None
+    tailscale_dns_name: str | None
+    warnings: tuple[str, ...] = ()
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "generated_at": _iso(self.generated_at),
+            "central_machine": self.central_machine.to_dict(),
+            "web": {
+                "url": self.web_url,
+                "host": self.web_host,
+                "port": self.web_port,
+            },
+            "database": {
+                "local_endpoint": self.database_local_endpoint,
+                "writer_endpoint": self.database_writer_endpoint,
+                "remote_ready": self.database_remote_ready,
+            },
+            "tailscale": {
+                "connected": self.tailscale_connected,
+                "ipv4": self.tailscale_ipv4,
+                "dns_name": self.tailscale_dns_name,
+            },
+            "network_scan": False,
+            "warnings": list(self.warnings),
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class SetupPreview:
     """Full preview for the setup landing page."""
 
@@ -563,9 +608,7 @@ class SetupPlanner:
         try:
             reader = getattr(self.database, "machines", None)
             machines = reader() if callable(reader) else self.database.snapshot().machines
-            if not isinstance(machines, tuple) or any(
-                not isinstance(item, MachineNode) for item in machines
-            ):
+            if not isinstance(machines, tuple) or any(not isinstance(item, MachineNode) for item in machines):
                 raise TypeError("invalid machine registry")
             return MachineDiscovery(
                 generated_at=datetime.now(tz=UTC),
@@ -580,6 +623,57 @@ class SetupPlanner:
                 available=False,
                 error=_safe_error(exc),
             )
+
+    def connection(self) -> SetupConnection:
+        """Explain safe central endpoints without exposing database credentials."""
+
+        identity = tailscale_identity()
+        tailscale_only = os.environ.get("CHATREVIEW_WEB_TAILSCALE_ONLY", "0") == "1"
+        configured_web_host = str(getattr(self.settings, "host", "127.0.0.1"))
+        web_port = int(getattr(self.settings, "port", 8765))
+        if identity and (tailscale_only or configured_web_host in {"0.0.0.0", "::"}):
+            web_host = identity.dns_name
+        else:
+            web_host = configured_web_host
+
+        parsed = urlsplit(self.settings.database_url)
+        query = parse_qs(parsed.query)
+        database_host = parsed.hostname or "local-socket"
+        database_port = parsed.port or int(query.get("port", [5432])[0])
+        bind_host = os.environ.get("CHATREVIEW_DB_BIND_ADDRESS", database_host).strip()
+        public_host = os.environ.get("CHATREVIEW_PUBLIC_DATABASE_HOST", "").strip()
+        if not public_host and identity and bind_host == identity.ipv4:
+            public_host = identity.dns_name
+        if not public_host and not _loopback_host(database_host):
+            public_host = database_host
+        remote_ready = bool(public_host and not _loopback_host(bind_host))
+        writer_endpoint = f"{public_host}:{database_port}" if remote_ready else None
+
+        warnings: list[str] = []
+        if identity is None:
+            warnings.append(
+                "Tailscale is not connected on the central machine. "
+                "Writers need another private network path."
+            )
+        if not remote_ready:
+            warnings.append(
+                "PostgreSQL is local-only. Rebind the bundled database to the "
+                "Tailscale address before adding writers."
+            )
+        return SetupConnection(
+            generated_at=datetime.now(tz=UTC),
+            central_machine=self._machine_identity(),
+            web_url=f"http://{web_host}:{web_port}",
+            web_host=web_host,
+            web_port=web_port,
+            database_local_endpoint=f"{database_host}:{database_port}",
+            database_writer_endpoint=writer_endpoint,
+            database_remote_ready=remote_ready,
+            tailscale_connected=identity is not None,
+            tailscale_ipv4=identity.ipv4 if identity else None,
+            tailscale_dns_name=identity.dns_name if identity else None,
+            warnings=tuple(warnings),
+        )
 
     def _read_snapshot(self) -> tuple[DatabaseSnapshot, str | None]:
         try:
@@ -747,9 +841,7 @@ class PostgresSetupDatabase:
                 """,
                 parameters,
             ).fetchone()
-            total_events = int(
-                connection.execute("SELECT COUNT(*) FROM events").fetchone()[0]
-            )
+            total_events = int(connection.execute("SELECT COUNT(*) FROM events").fetchone()[0])
         events = int(event_row["events"] if event_row else 0)
         return ScopeEstimate(
             available=True,
@@ -766,9 +858,7 @@ class PostgresSetupDatabase:
 
     @staticmethod
     def _health(connection: Any) -> DatabaseHealth:
-        schema_row = connection.execute(
-            "SELECT value FROM schema_meta WHERE key='schema_version'"
-        ).fetchone()
+        schema_row = connection.execute("SELECT value FROM schema_meta WHERE key='schema_version'").fetchone()
         status_rows = connection.execute(
             """
             SELECT revision.status, COUNT(*) AS count
@@ -792,9 +882,7 @@ class PostgresSetupDatabase:
             table: int(connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
             for table in _COUNT_TABLES
         }
-        database_size = int(
-            connection.execute("SELECT pg_database_size(current_database())").fetchone()[0]
-        )
+        database_size = int(connection.execute("SELECT pg_database_size(current_database())").fetchone()[0])
         storage: dict[str, int] = {}
         for table in _STORAGE_TABLES:
             storage[table] = int(
@@ -900,9 +988,7 @@ class PostgresSetupDatabase:
             """
         ).fetchone()
         return ReasoningFootprint(
-            raw_reasoning_records=(
-                int(raw_row["raw_reasoning_records"]) if raw_row is not None else None
-            ),
+            raw_reasoning_records=(int(raw_row["raw_reasoning_records"]) if raw_row is not None else None),
             raw_reasoning_bytes=(int(raw_row["raw_reasoning_bytes"]) if raw_row is not None else None),
             encrypted_reasoning_records=(
                 int(raw_row["encrypted_reasoning_records"]) if raw_row is not None else None
@@ -1000,6 +1086,17 @@ def _event_scope_clause(scope: HistoryScope, providers: tuple[str, ...]) -> tupl
         clauses.append("COALESCE(event.timestamp, session.started_at) < ?")
         parameters.append(datetime.combine(scope.end + timedelta(days=1), time.min, tzinfo=UTC))
     return " AND ".join(clauses), parameters
+
+
+def _loopback_host(value: str) -> bool:
+    """Return whether a database bind/host is local-only."""
+
+    if value in {"localhost", "local-socket", "::1"}:
+        return True
+    try:
+        return ipaddress.ip_address(value).is_loopback
+    except ValueError:
+        return False
 
 
 def _inspect_root(provider: str, root_value: Any, history_value: Any) -> ProviderRootStatus:

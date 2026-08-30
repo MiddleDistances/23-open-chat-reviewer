@@ -70,13 +70,17 @@ On each additional computer:
 2. Obtain a dedicated writer environment from the central operator.
 3. Set that computer's Codex, Claude, Gemini, and optional Git roots.
 4. Keep the generated machine ID stable for the life of that writer.
-5. Run `db doctor`, `inventory`, and then the resumable sync wrapper.
+5. Run the guided writer installer; it performs `db doctor`, inventory, the first
+   resumable sync, and schedule installation in order.
 
-The normal writer command is:
+The first-run writer command is:
 
 ```bash
-scripts/chatreview-sync.sh
+uv run open-chat-reviewer writer install ~/Downloads/<machine-name>.env
 ```
+
+Use `scripts/chatreview-sync.sh` for later manual incremental syncs; the installed
+three-hour schedule invokes the same wrapper automatically.
 
 Do not copy a writer's `.chatreview` directory or machine ID to another computer. Do
 not run migrations, the web server, or the central worker from a writer. The complete

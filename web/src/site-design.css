@@ -1410,6 +1410,195 @@ textarea::placeholder {
 .setup-hero-status small {
   color: #5c5e62;
 }
+.setup-connection-overview {
+  margin-top: 16px;
+  overflow: hidden;
+}
+.setup-connection-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 18px;
+}
+.setup-connection-heading h2 {
+  margin: 6px 0;
+  font-size: 22px;
+}
+.setup-connection-heading p {
+  max-width: 760px;
+  margin: 0;
+  color: #5c5e62;
+}
+.setup-connection-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.55fr) minmax(280px, 0.7fr);
+  gap: 18px;
+}
+.setup-architecture-figure {
+  min-width: 0;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid #e2e5eb;
+  border-radius: 6px;
+  background: linear-gradient(145deg, #fbfcff 0%, #f4f7fd 100%);
+}
+.setup-architecture-figure svg {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+.setup-architecture-mobile {
+  display: none !important;
+}
+.setup-architecture-figure figcaption {
+  padding: 3px 10px 8px;
+  color: #5c5e62;
+  font-size: 12px;
+}
+.setup-svg-node,
+.setup-svg-central,
+.setup-svg-database,
+.setup-svg-gui {
+  stroke-width: 1.5;
+}
+.setup-svg-node {
+  fill: #ffffff;
+  stroke: #d5dae4;
+}
+.setup-svg-central {
+  fill: #eef3ff;
+  stroke: #6f8ddd;
+}
+.setup-svg-database {
+  fill: #ffffff;
+  stroke: #3e6ae1;
+}
+.setup-svg-gui {
+  fill: #e9f7ef;
+  stroke: #56a178;
+}
+.setup-svg-kicker {
+  fill: #5c5e62;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+.setup-svg-title,
+.setup-svg-title-small {
+  fill: #171a20;
+  font-weight: 700;
+}
+.setup-svg-title {
+  font-size: 20px;
+}
+.setup-svg-title-small {
+  font-size: 15px;
+}
+.setup-svg-copy,
+.setup-svg-flow-label,
+.setup-svg-endpoint {
+  fill: #5c5e62;
+  font-size: 12px;
+}
+.setup-svg-flow-label {
+  fill: #3159c7;
+  font-weight: 600;
+}
+.setup-svg-endpoint {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+.setup-svg-flow {
+  fill: none;
+  stroke: #3e6ae1;
+  stroke-width: 2.5;
+  stroke-linecap: round;
+}
+.setup-svg-arrowhead {
+  fill: #3e6ae1;
+}
+.setup-address-panel {
+  align-content: start;
+  display: grid;
+  gap: 8px;
+}
+.setup-address-row {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid #e2e5eb;
+  border-radius: 5px;
+  background: #ffffff;
+}
+.setup-address-row > span:nth-child(2) {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+.setup-address-row small {
+  color: #5c5e62;
+}
+.setup-address-row strong {
+  overflow-wrap: anywhere;
+  font-size: 13px;
+}
+.setup-address-row .setup-copy-button {
+  grid-column: 2 / -1;
+  justify-self: start;
+}
+.setup-address-icon {
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  color: #3e6ae1;
+  border-radius: 4px;
+  background: #eef2fd;
+}
+.setup-copy-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 32px;
+  padding: 6px 9px;
+  color: #3159c7;
+  border: 1px solid #b8c8f2;
+  border-radius: 4px;
+  background: #f8faff;
+  cursor: pointer;
+}
+.setup-copy-button:hover {
+  background: #eef2fd;
+}
+.setup-address-warning,
+.setup-writer-blocker {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 9px;
+  padding: 12px;
+  color: #8a4b08;
+  border: 1px solid #efd09c;
+  border-radius: 5px;
+  background: #fff9ee;
+}
+.setup-address-warning span,
+.setup-writer-blocker span {
+  display: grid;
+  gap: 3px;
+}
+.setup-address-warning small,
+.setup-writer-blocker small {
+  color: inherit;
+}
+.setup-address-security {
+  padding: 2px 3px;
+  color: #5c5e62;
+}
 .setup-step-cards {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -1728,6 +1917,100 @@ button.setup-machine-card:not(:disabled) {
   border-radius: 4px;
   background: #f8faff;
 }
+.setup-writer-guide {
+  display: grid;
+  gap: 16px;
+  margin-top: 16px;
+  padding: 18px;
+  border: 1px solid #b8c8f2;
+  border-radius: 4px;
+  background: #f8faff;
+}
+.setup-writer-options {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto;
+  align-items: end;
+  gap: 12px;
+}
+.setup-writer-options label {
+  display: grid;
+  gap: 6px;
+  color: #5c5e62;
+  font-size: 12px;
+}
+.setup-writer-options input {
+  min-height: 39px;
+  padding: 7px 10px;
+  color: #171a20;
+  border: 1px solid #d0d1d2;
+  border-radius: 4px;
+  background: #ffffff;
+}
+.setup-writer-options [role="group"] {
+  display: flex;
+  gap: 6px;
+}
+.setup-writer-options button {
+  min-height: 39px;
+  padding: 8px 13px;
+  color: #5c5e62;
+  border: 1px solid #d0d1d2;
+  border-radius: 4px;
+  background: #ffffff;
+  cursor: pointer;
+}
+.setup-writer-options button.active {
+  color: #ffffff;
+  border-color: #3e6ae1;
+  background: #3e6ae1;
+}
+.setup-writer-steps {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding-left: 25px;
+}
+.setup-writer-steps li {
+  padding-left: 5px;
+}
+.setup-writer-steps li > div:first-child {
+  display: grid;
+  gap: 3px;
+}
+.setup-writer-steps li > div:first-child > span {
+  color: #5c5e62;
+  font-size: 13px;
+}
+.setup-writer-steps li > a {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 7px;
+  font-size: 13px;
+}
+.setup-command-block {
+  position: relative;
+  min-width: 0;
+  margin-top: 8px;
+}
+.setup-command-block pre {
+  margin: 0;
+  padding: 14px 125px 14px 14px;
+  overflow-x: auto;
+  color: #f4f6fb;
+  border-radius: 5px;
+  background: #20242c;
+  font-size: 12px;
+  line-height: 1.65;
+}
+.setup-command-block .setup-copy-button {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  color: #ffffff;
+  border-color: #5c6370;
+  background: #343a46;
+}
 .setup-machine-onboarding-header,
 .setup-machine-onboarding-actions {
   display: flex;
@@ -1984,6 +2267,7 @@ button.setup-machine-card:not(:disabled) {
 }
 @media (max-width: 720px) {
   .setup-hero,
+  .setup-connection-heading,
   .setup-build-header,
   .setup-multi-machine-note,
   .setup-section-actions,
@@ -1991,6 +2275,16 @@ button.setup-machine-card:not(:disabled) {
   .setup-machine-onboarding-actions {
     align-items: stretch;
     flex-direction: column;
+  }
+  .setup-connection-layout,
+  .setup-writer-options {
+    grid-template-columns: 1fr;
+  }
+  .setup-architecture-desktop {
+    display: none !important;
+  }
+  .setup-architecture-mobile {
+    display: block !important;
   }
   .setup-step-cards,
   .setup-two-column,
@@ -2008,6 +2302,16 @@ button.setup-machine-card:not(:disabled) {
   }
   .setup-hero-status {
     min-width: 0;
+  }
+  .setup-address-row {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .setup-address-row > :nth-child(n + 3) {
+    grid-column: 2;
+    justify-self: start;
+  }
+  .setup-command-block pre {
+    padding: 52px 14px 14px;
   }
   .map-toolbar > label,
   .map-toolbar select,

@@ -218,6 +218,10 @@ def create_app(settings: Settings) -> FastAPI:
     def setup_machines() -> dict[str, Any]:
         return setup.machines().to_dict()
 
+    @app.get("/api/setup/connection")
+    def setup_connection() -> dict[str, Any]:
+        return setup.connection().to_dict()
+
     @app.post("/api/setup/preview")
     def setup_preview(payload: SetupPreviewInput) -> dict[str, Any]:
         providers = [*payload.providers]

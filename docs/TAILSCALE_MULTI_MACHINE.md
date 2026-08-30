@@ -5,16 +5,10 @@ computers into one PostgreSQL archive. The recommended deployment is a central n
 one writer configuration per source machine, all connected through a private Tailscale
 network (a tailnet).
 
-```text
-Codex / Claude / Gemini / Git files          trusted browser
-             |                                    |
-      remote writer nodes                   TCP 8765
-             |                                    |
-             +---------- TCP 54329 ---------------+
-                                  |
-                         central Tailscale node
-                         PostgreSQL + web + worker
-```
+The Setup page includes a live, accessible SVG of this topology and shows the actual
+credential-free Tailscale, GUI, and writer database addresses detected on the central
+machine. If PostgreSQL is still local-only, it says so explicitly instead of inventing
+an address that another computer cannot use.
 
 Writers never modify or copy the source archives. They parse their local files and write
 raw, hash-addressed records plus canonical projections to PostgreSQL. A stable, distinct
@@ -134,9 +128,9 @@ writer credential can read the shared archive even though it cannot migrate the 
 create database roles. Tailnet grants, device hygiene, and per-writer credential rotation
 are therefore essential. Row-level writer isolation is intentionally not claimed.
 
-Copy that file through a secure channel to
-`23-open-chat-reviewer/.chatreview/archive.env` on the named writer. Delete any temporary
-transfer copy. Never commit either file. If a writer is lost, remove its Tailscale device
+Copy that file through a secure channel to the named writer, for example its local
+`~/Downloads` directory. Delete the transfer copy after installation. Never commit either
+file. If a writer is lost, remove its Tailscale device
 and revoke its PostgreSQL role on the central node:
 
 ```sql
@@ -157,14 +151,16 @@ directories. It does not need Docker or a local PostgreSQL server.
 git clone https://github.com/MiddleDistances/23-open-chat-reviewer.git
 cd 23-open-chat-reviewer
 uv sync
-mkdir -p .chatreview
-# Securely place the generated file at .chatreview/archive.env, then:
-chmod 600 .chatreview/archive.env
-source .chatreview/archive.env
-uv run open-chat-reviewer db doctor
-uv run open-chat-reviewer inventory
-scripts/chatreview-sync.sh
+uv run open-chat-reviewer writer install ~/Downloads/laptop.env
 ```
+
+That one command validates and privately installs the generated file, runs `db doctor`,
+previews the local non-Git sources, performs the first resumable sync, and installs the
+three-hour systemd user timer or macOS LaunchAgent. It never accepts or prints a database
+URL, so a password does not enter shell history. On macOS, first run `brew install flock`.
+Use `--no-sync` or `--no-schedule` when deliberately separating those stages. Limit the
+first archive pass with `--history-since YYYY-MM-DD` and/or
+`--history-until YYYY-MM-DD`.
 
 Review and change `CHATREVIEW_CODEX_ROOT`, `CHATREVIEW_CLAUDE_ROOT`,
 `CHATREVIEW_GEMINI_ROOT`, and `CHATREVIEW_GIT_ROOT` for that machine before its first
@@ -178,19 +174,16 @@ be included merely because it joins the tailnet. The first-run preview should sh
 provider/file/byte counts and the effective earliest/latest source timestamps before
 sync begins.
 
-For a Linux writer, install the three-hour timer with randomized jitter:
+For a Linux writer, inspect the installed three-hour timer with randomized jitter:
 
 ```bash
-scripts/install-systemd-writer.sh
 systemctl --user list-timers open-chat-reviewer-writer.timer
 journalctl --user -u open-chat-reviewer-writer.service
 ```
 
-On macOS, install `flock` and the three-hour LaunchAgent:
+On macOS, inspect the three-hour LaunchAgent:
 
 ```bash
-brew install flock
-scripts/install-launchd-writer.sh
 launchctl print gui/$(id -u)/org.openchatreviewer.writer
 ```
 
@@ -224,6 +217,18 @@ summaries are derived layers. Git contributes repository/commit metadata, messag
 parents, timestamps, changed paths/status, and provenance—not Git blobs, patches, or
 full checkout contents. Read [Setup, scope, and storage](SETUP_AND_STORAGE.md) before
 changing raw-reasoning retention or semantic inclusion policy.
+
+If an older central installation is still local-only, enable private writer access
+without rebuilding the archive:
+
+```bash
+uv run open-chat-reviewer network prepare-writers
+```
+
+This detects the active Tailscale identity, preserves existing credentials and source
+settings, changes the bundled PostgreSQL bind to that private address, and recreates only
+the database container. It restores the private config if container reconfiguration
+fails. Restart the web service afterward so it reloads the updated database URL.
 
 After writer syncs, check the central status page/command. A successful writer sync can
 still leave episodes, timesheets, semantic runs, or resume cards stale until the central

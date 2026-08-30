@@ -92,6 +92,6 @@ mkdir -p -- "$writer_dir"
 chmod 600 "$writer_file"
 
 printf 'Created private writer configuration: %s\n' "$writer_file"
-printf 'Copy it securely to .chatreview/archive.env on %s, then delete the transfer copy.\n' \
+printf 'Copy it securely to %s, then run `uv run open-chat-reviewer writer install <file>`.\n' \
     "$writer_slug"
-printf 'The writer must run db doctor and sync only; migrations and derived workers stay central.\n'
+printf 'Delete the transfer copy after installation; migrations and derived workers stay central.\n'

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import importlib.util
-import ipaddress
 import json
 import os
 import platform
@@ -11,7 +10,7 @@ import subprocess
 import sys
 import textwrap
 import webbrowser
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Annotated, Literal
@@ -21,6 +20,7 @@ import typer
 
 from chatreview.api import create_app
 from chatreview.automation import automation_status
+from chatreview.central_network import CentralNetworkError, prepare_central_network
 from chatreview.config import Settings, default_settings
 from chatreview.db import (
     close_pools,
@@ -35,6 +35,7 @@ from chatreview.episodes import EpisodeBuilder, write_episode_summary
 from chatreview.exporter import collect_evidence, write_export
 from chatreview.ingest import sync_sources
 from chatreview.inventory import build_inventory, write_inventory
+from chatreview.network import tailscale_identity
 from chatreview.providers import ClaudeAdapter, CodexAdapter, GeminiAdapter, GitAdapter
 from chatreview.reporting import build_baseline_report, write_baseline_report
 from chatreview.resume import (
@@ -66,6 +67,7 @@ from chatreview.timesheets import (
     financial_year_dates,
 )
 from chatreview.worker import run_cycle, run_forever
+from chatreview.writer_setup import WriterInstallError, WriterInstallPlan, install_writer
 
 app = typer.Typer(
     name="open-chat-reviewer",
@@ -78,23 +80,23 @@ resume_app = typer.Typer(help="Build and inspect evidence-bounded resume cards."
 semantic_app = typer.Typer(help="Build and inspect optional semantic indexes.")
 timesheets_app = typer.Typer(help="Build and export overlap-aware workload intervals.")
 worker_app = typer.Typer(help="Run repeatable sync and derivation cycles.")
+writer_app = typer.Typer(help="Install and operate source-only writer machines.")
+network_app = typer.Typer(help="Prepare private central-node connectivity.")
 app.add_typer(db_app, name="db")
 app.add_typer(resume_app, name="resume")
 app.add_typer(semantic_app, name="semantic")
 app.add_typer(timesheets_app, name="timesheets")
 app.add_typer(worker_app, name="worker")
+app.add_typer(writer_app, name="writer")
+app.add_typer(network_app, name="network")
 
 DataDir = Annotated[
     Path | None,
     typer.Option("--data-dir", help="Runtime state directory (default: ./.chatreview)."),
 ]
 CodexRoot = Annotated[Path | None, typer.Option("--codex-root", help="Codex home/history root.")]
-ClaudeRoot = Annotated[
-    Path | None, typer.Option("--claude-root", help="Claude home/history root.")
-]
-GeminiRoot = Annotated[
-    Path | None, typer.Option("--gemini-root", help="Gemini CLI home/history root.")
-]
+ClaudeRoot = Annotated[Path | None, typer.Option("--claude-root", help="Claude home/history root.")]
+GeminiRoot = Annotated[Path | None, typer.Option("--gemini-root", help="Gemini CLI home/history root.")]
 GitRoot = Annotated[
     Path | None,
     typer.Option("--git-root", help="Root containing recursively discovered Git repositories."),
@@ -141,8 +143,7 @@ def _provider_selection(provider: list[str] | None, *, include_git: bool) -> set
     invalid = selected - allowed
     if invalid:
         raise typer.BadParameter(
-            f"unknown provider(s): {', '.join(sorted(invalid))}; "
-            "use codex, claude, gemini, or git"
+            f"unknown provider(s): {', '.join(sorted(invalid))}; use codex, claude, gemini, or git"
         )
     if selected:
         if not include_git:
@@ -154,42 +155,8 @@ def _provider_selection(provider: list[str] | None, *, include_git: bool) -> set
 def _tailscale_identity() -> tuple[str, str] | None:
     """Return the active Tailscale IPv4 and preferred MagicDNS name, if available."""
 
-    try:
-        result = subprocess.run(
-            ["tailscale", "ip", "-4"],
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=3,
-        )
-    except (FileNotFoundError, subprocess.SubprocessError):
-        return None
-    addresses = [line.strip() for line in result.stdout.splitlines() if line.strip()]
-    if len(addresses) != 1:
-        return None
-    try:
-        address = ipaddress.ip_address(addresses[0])
-    except ValueError:
-        return None
-    if address.version != 4 or address.is_loopback:
-        return None
-
-    hostname = str(address)
-    try:
-        status = subprocess.run(
-            ["tailscale", "status", "--json"],
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=3,
-        )
-        payload = json.loads(status.stdout)
-        dns_name = str(payload.get("Self", {}).get("DNSName", "")).rstrip(".")
-        if payload.get("CurrentTailnet", {}).get("MagicDNSEnabled") and dns_name:
-            hostname = dns_name
-    except (json.JSONDecodeError, FileNotFoundError, subprocess.SubprocessError):
-        pass
-    return str(address), hostname
+    identity = tailscale_identity()
+    return (identity.ipv4, identity.dns_name) if identity else None
 
 
 @app.command("init")
@@ -208,9 +175,7 @@ def initialize(
     ] = "central",
     network: Annotated[
         Literal["auto", "tailscale", "loopback"],
-        typer.Option(
-            help="Central-node bind policy. Auto prefers an active Tailscale interface."
-        ),
+        typer.Option(help="Central-node bind policy. Auto prefers an active Tailscale interface."),
     ] = "auto",
 ) -> None:
     """Create private central-node or remote-writer configuration."""
@@ -221,16 +186,12 @@ def initialize(
     if role == "writer":
         database_url = database_url or os.environ.get("CHATREVIEW_DATABASE_URL")
         if not database_url:
-            raise typer.BadParameter(
-                "writer nodes require --database-url or CHATREVIEW_DATABASE_URL"
-            )
+            raise typer.BadParameter("writer nodes require --database-url or CHATREVIEW_DATABASE_URL")
         network_values: dict[str, str] = {}
     else:
         identity = None if network == "loopback" else _tailscale_identity()
         if network == "tailscale" and identity is None:
-            raise typer.BadParameter(
-                "--network tailscale requires one active Tailscale IPv4 address"
-            )
+            raise typer.BadParameter("--network tailscale requires one active Tailscale IPv4 address")
         bind_address, public_host = identity or ("127.0.0.1", "127.0.0.1")
         network_values = {
             "CHATREVIEW_DB_BIND_ADDRESS": bind_address,
@@ -240,9 +201,7 @@ def initialize(
         }
         if database_url is None:
             password = secrets.token_hex(24)
-            database_url = (
-                f"postgresql://chatreview:{password}@{bind_address}:54329/chatreview"
-            )
+            database_url = f"postgresql://chatreview:{password}@{bind_address}:54329/chatreview"
             network_values["CHATREVIEW_POSTGRES_PASSWORD"] = password
 
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -268,13 +227,86 @@ def initialize(
         typer.echo("Then run scripts/chatreview-sync.sh; do not run migrations from a writer node.")
     else:
         if network_values["CHATREVIEW_WEB_TAILSCALE_ONLY"] == "1":
-            typer.echo(
-                "Selected the active Tailscale interface for the bundled database and web UI."
-            )
+            typer.echo("Selected the active Tailscale interface for the bundled database and web UI.")
         typer.echo(
-            f"Next: source {output} && docker compose up -d db && "
-            "uv run open-chat-reviewer db migrate"
+            f"Next: source {output} && docker compose up -d db && uv run open-chat-reviewer db migrate"
         )
+
+
+@network_app.command("prepare-writers")
+def network_prepare_writers(
+    config: Annotated[
+        Path,
+        typer.Option("--config", help="Private central environment file."),
+    ] = Path(".chatreview/archive.env"),
+) -> None:
+    """Bind the bundled database to this machine's private Tailscale address."""
+
+    identity = tailscale_identity()
+    if identity is None:
+        typer.echo(
+            "Central network preparation stopped: install and sign in to Tailscale first.",
+            err=True,
+        )
+        raise typer.Exit(1)
+    try:
+        result = prepare_central_network(config, identity)
+    except CentralNetworkError as exc:
+        typer.echo(f"Central network preparation stopped: {exc}", err=True)
+        raise typer.Exit(1) from exc
+    typer.echo(f"Writer database endpoint: {result.database_endpoint}")
+    typer.echo("Private configuration updated without printing its database URL or password.")
+    typer.echo("Restart the Open Chat Reviewer web service, then return to Setup and refresh.")
+
+
+@writer_app.command("install")
+def writer_install(
+    config: Annotated[
+        Path,
+        typer.Argument(help="Private writer .env file created on the central machine."),
+    ],
+    data_dir: DataDir = None,
+    run_sync: Annotated[
+        bool,
+        typer.Option("--sync/--no-sync", help="Run the first resumable sync after checks."),
+    ] = True,
+    schedule: Annotated[
+        bool,
+        typer.Option(
+            "--schedule/--no-schedule",
+            help="Install the Linux or macOS three-hour writer schedule.",
+        ),
+    ] = True,
+    history_since: Annotated[str | None, typer.Option(help="Earliest date, YYYY-MM-DD.")] = None,
+    history_until: Annotated[str | None, typer.Option(help="Latest date, YYYY-MM-DD.")] = None,
+) -> None:
+    """Install a private config, verify sources, sync, and schedule the writer."""
+
+    try:
+        parsed_since = date.fromisoformat(history_since) if history_since else None
+        parsed_until = date.fromisoformat(history_until) if history_until else None
+    except ValueError as exc:
+        raise typer.BadParameter("history dates must use YYYY-MM-DD") from exc
+    try:
+        result = install_writer(
+            WriterInstallPlan(
+                config_path=config,
+                data_dir=data_dir or Path(".chatreview"),
+                run_sync=run_sync,
+                install_schedule=schedule,
+                history_since=parsed_since,
+                history_until=parsed_until,
+            )
+        )
+    except WriterInstallError as exc:
+        typer.echo(f"Writer installation stopped: {exc}", err=True)
+        raise typer.Exit(1) from exc
+    typer.echo(f"Writer `{result.machine_name}` is installed.")
+    typer.echo(f"Private configuration: {result.config_path}")
+    if result.synced:
+        typer.echo("The first resumable sync completed.")
+    if result.schedule:
+        typer.echo(f"Automatic sync: {result.schedule}.")
 
 
 def _doctor(
@@ -320,8 +352,7 @@ def _doctor(
     except Exception as exc:
         checks.append(("PostgreSQL archive", False, f"{type(exc).__name__}: {exc}", True))
     semantic_modules = all(
-        importlib.util.find_spec(name) is not None
-        for name in ("hdbscan", "sentence_transformers", "umap")
+        importlib.util.find_spec(name) is not None for name in ("hdbscan", "sentence_transformers", "umap")
     )
     checks.append(
         (
@@ -374,8 +405,7 @@ def db_migrate(data_dir: DataDir = None) -> None:
 
     applied = migrate(_settings(data_dir, None, None).database_url)
     typer.echo(
-        f"Applied {len(applied)} migration(s): "
-        f"{', '.join(applied) if applied else 'already current'}."
+        f"Applied {len(applied)} migration(s): {', '.join(applied) if applied else 'already current'}."
     )
 
 
@@ -478,9 +508,7 @@ def sync_command(
         history_scope = HistoryScope(history_since, history_until)
     except (TypeError, ValueError) as exc:
         raise typer.BadParameter(str(exc)) from exc
-    if (providers is None or "gemini" in providers) and not GeminiAdapter(
-        settings.gemini_root
-    ).discover():
+    if (providers is None or "gemini" in providers) and not GeminiAdapter(settings.gemini_root).discover():
         typer.echo(
             "Gemini: no local session/history documents were found; if Gemini CLI did not "
             "retain them, an export or supported API source is required."
@@ -646,12 +674,8 @@ def semantic_refresh_command(
     ] = True,
     provider: Annotated[list[str] | None, typer.Option("--provider")] = None,
     project: Annotated[list[str] | None, typer.Option("--project")] = None,
-    date_from: Annotated[
-        str | None, typer.Option(help="Earliest event date (YYYY-MM-DD).")
-    ] = None,
-    date_to: Annotated[
-        str | None, typer.Option(help="Latest event date (YYYY-MM-DD).")
-    ] = None,
+    date_from: Annotated[str | None, typer.Option(help="Earliest event date (YYYY-MM-DD).")] = None,
+    date_to: Annotated[str | None, typer.Option(help="Latest event date (YYYY-MM-DD).")] = None,
     offline: Annotated[bool, typer.Option()] = False,
     force: Annotated[bool, typer.Option()] = False,
 ) -> None:
@@ -739,7 +763,9 @@ def search_command(
     results = (
         reciprocal_rank_fusion(lexical, semantic, limit=limit)
         if mode == "hybrid"
-        else lexical if mode == "lexical" else semantic
+        else lexical
+        if mode == "lexical"
+        else semantic
     )
     typer.echo(json.dumps({"query": query, "mode": mode, "results": results}, indent=2, default=str))
 
@@ -1007,7 +1033,7 @@ def serve(
 
     if host not in {"127.0.0.1", "localhost", "::1"}:
         typer.echo("Warning: this exposes private transcript data beyond loopback.")
-    settings = _settings(data_dir, None, None)
+    settings = replace(_settings(data_dir, None, None), host=host, port=port)
     application = create_app(settings)
     if open_browser:
         import threading

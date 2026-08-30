@@ -7,6 +7,7 @@ from uuid import UUID
 
 import pytest
 
+from chatreview.network import TailscaleIdentity
 from chatreview.setup_planner import (
     CorpusStats,
     DatabaseHealth,
@@ -185,6 +186,51 @@ def test_machine_discovery_checks_database_registry_without_network_scan(tmp_pat
     assert payload["machines"][0]["name"] == "workstation"
     assert "1 registered machine" in payload["message"]
     assert "No network scan" in payload["message"]
+
+
+def test_connection_exposes_safe_tailscale_endpoints_without_credentials(
+    tmp_path: Path, monkeypatch
+) -> None:
+    settings = _settings(tmp_path)
+    settings.database_url = "postgresql://writer:secret@100.101.102.103:54329/chatreview"
+    settings.host = "100.101.102.103"
+    settings.port = 8766
+    monkeypatch.setenv("CHATREVIEW_WEB_TAILSCALE_ONLY", "1")
+    monkeypatch.setenv("CHATREVIEW_DB_BIND_ADDRESS", "100.101.102.103")
+    monkeypatch.setenv("CHATREVIEW_PUBLIC_DATABASE_HOST", "archive.example.ts.net")
+    monkeypatch.setattr(
+        "chatreview.setup_planner.tailscale_identity",
+        lambda: TailscaleIdentity("100.101.102.103", "archive.example.ts.net"),
+    )
+
+    payload = SetupPlanner(settings, database=FakeDatabase()).connection().to_dict()
+
+    assert payload["web"]["url"] == "http://archive.example.ts.net:8766"
+    assert payload["database"]["writer_endpoint"] == "archive.example.ts.net:54329"
+    assert payload["database"]["remote_ready"] is True
+    assert payload["tailscale"]["connected"] is True
+    assert payload["network_scan"] is False
+    assert "secret" not in repr(payload)
+    assert "postgresql" not in repr(payload).lower()
+
+
+def test_connection_marks_loopback_database_as_unavailable_to_writers(
+    tmp_path: Path, monkeypatch
+) -> None:
+    settings = _settings(tmp_path)
+    settings.database_url = "postgresql://archive:secret@127.0.0.1:54329/chatreview"
+    monkeypatch.delenv("CHATREVIEW_DB_BIND_ADDRESS", raising=False)
+    monkeypatch.delenv("CHATREVIEW_PUBLIC_DATABASE_HOST", raising=False)
+    monkeypatch.setattr(
+        "chatreview.setup_planner.tailscale_identity",
+        lambda: TailscaleIdentity("100.101.102.103", "archive.example.ts.net"),
+    )
+
+    payload = SetupPlanner(settings, database=FakeDatabase()).connection().to_dict()
+
+    assert payload["database"]["writer_endpoint"] is None
+    assert payload["database"]["remote_ready"] is False
+    assert "local-only" in " ".join(payload["warnings"])
 
 
 def test_preview_warns_that_encoded_reasoning_is_not_vector_text(tmp_path: Path) -> None:

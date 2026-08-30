@@ -6,6 +6,7 @@ import SetupPage, {
   type SetupMachine,
   type SetupProgress,
 } from "./SetupPage";
+import type { SetupConnection } from "./ConnectionGuide";
 import SummaryAgentPanel, {
   type SummaryAgentId,
   type SummaryAgentStatus,
@@ -75,6 +76,23 @@ interface SetupMachinesResponse {
   error: string | null;
 }
 
+interface SetupConnectionResponse {
+  central_machine: { id: string; name: string; hostname: string };
+  web: { url: string; host: string; port: number };
+  database: {
+    local_endpoint: string;
+    writer_endpoint: string | null;
+    remote_ready: boolean;
+  };
+  tailscale: {
+    connected: boolean;
+    ipv4: string | null;
+    dns_name: string | null;
+  };
+  network_scan: false;
+  warnings: string[];
+}
+
 function requestBody(config: SetupConfig) {
   return {
     history_start: config.historyStart || null,
@@ -114,6 +132,8 @@ function estimateFromPreview(preview: SetupPreviewResponse): SetupEstimate {
 export default function SetupRoute() {
   const { data: setupStatus, refresh: refreshStatus } =
     useApi<SetupStatusResponse>("/api/setup/status");
+  const { data: connectionResponse } =
+    useApi<SetupConnectionResponse>("/api/setup/connection");
   const { data: progress, setData: setProgress } =
     useApi<SetupProgress>("/api/setup/build");
   const [preview, setPreview] = useState<SetupPreviewResponse | null>(null);
@@ -205,6 +225,26 @@ export default function SetupRoute() {
     ];
   }, [machineRegistry?.machines, preview?.machines, progress, setupStatus]);
 
+  const connection = useMemo<SetupConnection | null>(() => {
+    if (!connectionResponse) return null;
+    return {
+      centralMachine: connectionResponse.central_machine,
+      web: connectionResponse.web,
+      database: {
+        localEndpoint: connectionResponse.database.local_endpoint,
+        writerEndpoint: connectionResponse.database.writer_endpoint,
+        remoteReady: connectionResponse.database.remote_ready,
+      },
+      tailscale: {
+        connected: connectionResponse.tailscale.connected,
+        ipv4: connectionResponse.tailscale.ipv4,
+        dnsName: connectionResponse.tailscale.dns_name,
+      },
+      networkScan: connectionResponse.network_scan,
+      warnings: connectionResponse.warnings,
+    };
+  }, [connectionResponse]);
+
   async function previewBuild(config: SetupConfig) {
     const result = await api<SetupPreviewResponse>("/api/setup/preview", {
       method: "POST",
@@ -249,6 +289,7 @@ export default function SetupRoute() {
   return (
     <SetupPage
       machines={machines}
+      connection={connection}
       estimate={preview ? estimateFromPreview(preview) : null}
       progress={progress}
       onPreview={previewBuild}
@@ -258,6 +299,13 @@ export default function SetupRoute() {
       onOpenInstructions={() =>
         window.open(
           "https://github.com/MiddleDistances/23-open-chat-reviewer/blob/main/docs/SETUP_AND_STORAGE.md",
+          "_blank",
+          "noopener,noreferrer",
+        )
+      }
+      onOpenWriterInstructions={() =>
+        window.open(
+          "https://github.com/MiddleDistances/23-open-chat-reviewer/blob/main/docs/TAILSCALE_MULTI_MACHINE.md",
           "_blank",
           "noopener,noreferrer",
         )
