@@ -33,7 +33,7 @@ Requirements: Python 3.12 or 3.13, [uv](https://docs.astral.sh/uv/), Docker with
 and optionally [Bun](https://bun.sh/) to build the UI.
 
 ```bash
-git clone https://github.com/YOUR-ACCOUNT/23-open-chat-reviewer.git
+git clone https://github.com/MiddleDistances/23-open-chat-reviewer.git
 cd 23-open-chat-reviewer
 scripts/bootstrap.sh
 scripts/chatreview-sync.sh

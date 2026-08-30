@@ -15,6 +15,7 @@ classifiers = [
   "Programming Language :: Python :: 3.13",
   "Topic :: Database :: Database Engines/Servers",
 ]
+
 dependencies = [
   "fastapi>=0.116",
   "orjson>=3.10",
@@ -24,6 +25,11 @@ dependencies = [
   "typer>=0.16",
   "uvicorn[standard]>=0.35",
 ]
+
+[project.urls]
+Homepage = "https://github.com/MiddleDistances/23-open-chat-reviewer"
+Repository = "https://github.com/MiddleDistances/23-open-chat-reviewer.git"
+Issues = "https://github.com/MiddleDistances/23-open-chat-reviewer/issues"
 
 [project.optional-dependencies]
 semantic = [

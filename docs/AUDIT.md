@@ -39,7 +39,7 @@ application.
 - `.chatreview/`, raw JSONL, databases, logs, and environment files ignored.
 - CI covers Python lint/tests and the TypeScript test/build.
 - Tests use synthetic paths, identities, and chat records.
-- No repository remote is configured by the extraction itself.
+- The public repository contains only the reviewed Git tree; runtime state remains local.
 
-Before publication, the maintainer should choose a GitHub owner, replace the placeholder
-clone URL, enable secret scanning/Dependabot, and make the initial signed release.
+The maintainer should enable GitHub secret scanning and review Dependabot updates before
+the first tagged release.
