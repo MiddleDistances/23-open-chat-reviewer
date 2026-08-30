@@ -461,7 +461,10 @@ def _cli_provider_status(kind: CliProviderKind) -> dict[str, Any]:
         if isinstance(logged_in, bool):
             result["authenticated"] = logged_in
     elif command == "codex":
-        result["authenticated"] = probe.returncode == 0 and "logged in" in combined.lower()
+        if probe.returncode == 0 and "logged in" in combined.lower():
+            result["authenticated"] = True
+        elif "not logged in" in combined.lower():
+            result["authenticated"] = False
     elif probe.returncode == 0:
         result["authenticated"] = True
     if result["authenticated"] is True:
