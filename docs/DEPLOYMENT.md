@@ -33,6 +33,23 @@ The script binds to Tailscale when generated configuration contains
 `127.0.0.1:8765`. There is no application authentication layer, so never bind directly to
 a public interface. Use least-privilege Tailscale grants and one database login per writer.
 
+### Coexisting installations
+
+Each installation needs a distinct environment file, database, runtime directory, service
+name, and web port. This keeps an existing private archive intact while evaluating Open
+Chat Reviewer alongside it. For example, leave an established service on `8765` and set
+the open-source service to `8766`:
+
+```bash
+export CHATREVIEW_WEB_TAILSCALE_ONLY=1
+export CHATREVIEW_WEB_PORT=8766
+scripts/chatreview-web.sh
+```
+
+Do not point two schema variants at the same PostgreSQL database merely because their
+tables look similar. Migration names and checksums are the compatibility contract. Use a
+separate database and run the resumable source sync when the contracts differ.
+
 ## Background services
 
 Linux user services:

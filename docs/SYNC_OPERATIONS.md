@@ -34,7 +34,7 @@ Useful controls:
 
 ```bash
 uv run open-chat-reviewer inventory --no-git
-uv run open-chat-reviewer sync --providers codex,claude --workers 2
+uv run open-chat-reviewer sync --provider codex --provider claude --workers 2
 uv run open-chat-reviewer episodes --force
 uv run open-chat-reviewer timesheets build --force
 uv run open-chat-reviewer status
