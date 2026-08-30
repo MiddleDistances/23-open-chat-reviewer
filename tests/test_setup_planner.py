@@ -109,6 +109,9 @@ class FakeDatabase:
     def snapshot(self) -> DatabaseSnapshot:
         return _snapshot()
 
+    def machines(self) -> tuple[MachineNode, ...]:
+        return _snapshot().machines
+
     def estimate_scope(self, scope: HistoryScope, providers: tuple[str, ...]) -> ScopeEstimate:
         self.scopes.append((scope, providers))
         return ScopeEstimate(
@@ -171,6 +174,17 @@ def test_preview_discovers_roots_without_writing_and_keeps_secret_out(tmp_path: 
     assert roots["codex"]["history_exists"] is True
     assert roots["claude"]["history_exists"] is False
     assert roots["gemini"]["exists"] is False
+
+
+def test_machine_discovery_checks_database_registry_without_network_scan(tmp_path: Path) -> None:
+    payload = SetupPlanner(_settings(tmp_path), database=FakeDatabase()).machines().to_dict()
+
+    assert payload["available"] is True
+    assert payload["method"] == "shared_database"
+    assert payload["network_scan"] is False
+    assert payload["machines"][0]["name"] == "workstation"
+    assert "1 registered machine" in payload["message"]
+    assert "No network scan" in payload["message"]
 
 
 def test_preview_warns_that_encoded_reasoning_is_not_vector_text(tmp_path: Path) -> None:

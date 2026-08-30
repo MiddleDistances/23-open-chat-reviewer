@@ -10,8 +10,8 @@ import {
   LoaderCircle,
   Monitor,
   Play,
+  Plus,
   RefreshCw,
-  Server,
   ShieldCheck,
   Sparkles,
   TriangleAlert,
@@ -19,7 +19,6 @@ import {
 import { useState, type ReactNode } from "react";
 import {
   Badge,
-  ErrorNotice,
   PageHeader,
   formatBytes,
   formatDate,
@@ -119,7 +118,8 @@ export interface SetupPageProps {
   onPreview?: (config: SetupConfig) => SetupEstimate | void | Promise<SetupEstimate | void>;
   onStartBuild?: (config: SetupConfig) => void | Promise<void>;
   onCancelBuild?: () => void | Promise<void>;
-  onDiscoverMachine?: () => void | Promise<void>;
+  /** Re-read machines registered in the shared archive; this is never a network scan. */
+  onRefreshMachines?: () => string | void | Promise<string | void>;
   onSelectMachine?: (machineId: string) => void;
   onOpenInstructions?: () => void;
   onSelectStep?: (step: SetupStep) => void;
@@ -137,6 +137,23 @@ export const DEFAULT_SETUP_CONFIG: SetupConfig = {
   includeReadableReasoningInSearch: false,
   includeReasoningInProjection: false,
 };
+
+export const SETUP_ACTION_IDS = {
+  openGuide: "setup.guide.open",
+  addMachine: "setup.machine.add",
+  refreshMachines: "setup.machine.refresh",
+  previewBuild: "setup.build.preview",
+  startBuild: "setup.build.start",
+  cancelBuild: "setup.build.cancel",
+} as const;
+
+type SetupAction = "preview" | "start" | "cancel" | "refresh-machines" | "instructions";
+
+interface ActionFeedback {
+  actionId: string;
+  status: "pending" | "success" | "error";
+  message: string;
+}
 
 const PROVIDERS: Array<{ value: SetupProvider; label: string; description: string }> = [
   { value: "codex", label: "Codex", description: "Sessions in ~/.codex" },
@@ -167,7 +184,7 @@ export default function SetupPage({
   onPreview,
   onStartBuild,
   onCancelBuild,
-  onDiscoverMachine,
+  onRefreshMachines,
   onSelectMachine,
   onOpenInstructions,
   onSelectStep,
@@ -176,8 +193,9 @@ export default function SetupPage({
   const [config, setConfig] = useState<SetupConfig>(() => ({ ...DEFAULT_SETUP_CONFIG, ...initialConfig }));
   const [activeStep, setActiveStep] = useState<SetupStep>("machines");
   const [previewEstimate, setPreviewEstimate] = useState<SetupEstimate | null>(null);
-  const [action, setAction] = useState<"preview" | "start" | "cancel" | "discover" | "instructions" | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
+  const [action, setAction] = useState<SetupAction | null>(null);
+  const [feedback, setFeedback] = useState<ActionFeedback | null>(null);
+  const [showMachineSetup, setShowMachineSetup] = useState(false);
 
   const displayedEstimate = previewEstimate ?? estimate;
   const isRunning = Boolean(
@@ -197,19 +215,31 @@ export default function SetupPage({
   function selectStep(step: SetupStep) {
     setActiveStep(step);
     onSelectStep?.(step);
+    document.getElementById(`setup-section-${step}`)?.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
   }
 
   async function runAction(
-    name: Exclude<typeof action, null>,
-    callback: (() => void | Promise<void>) | undefined,
+    name: SetupAction,
+    actionId: string,
+    callback: (() => string | void | Promise<string | void>) | undefined,
+    pendingMessage: string,
+    successMessage: string,
   ) {
     if (!callback) return;
     setAction(name);
-    setActionError(null);
+    setFeedback({ actionId, status: "pending", message: pendingMessage });
     try {
-      await callback();
+      const result = await callback();
+      setFeedback({ actionId, status: "success", message: result || successMessage });
     } catch (reason) {
-      setActionError(reason instanceof Error ? reason.message : String(reason));
+      setFeedback({
+        actionId,
+        status: "error",
+        message: reason instanceof Error ? reason.message : String(reason),
+      });
     } finally {
       setAction(null);
     }
@@ -218,12 +248,25 @@ export default function SetupPage({
   async function preview() {
     if (!onPreview) return;
     setAction("preview");
-    setActionError(null);
+    setFeedback({
+      actionId: SETUP_ACTION_IDS.previewBuild,
+      status: "pending",
+      message: "Calculating the selected archive scope and storage estimate…",
+    });
     try {
       const nextEstimate = await onPreview(config);
       if (nextEstimate) setPreviewEstimate(nextEstimate);
+      setFeedback({
+        actionId: SETUP_ACTION_IDS.previewBuild,
+        status: "success",
+        message: "Build estimate is ready. Review it below before starting.",
+      });
     } catch (reason) {
-      setActionError(reason instanceof Error ? reason.message : String(reason));
+      setFeedback({
+        actionId: SETUP_ACTION_IDS.previewBuild,
+        status: "error",
+        message: reason instanceof Error ? reason.message : String(reason),
+      });
     } finally {
       setAction(null);
     }
@@ -232,7 +275,20 @@ export default function SetupPage({
   return (
     <div className="setup-page">
       <PageHeader eyebrow="Archive setup" title="Make every machine part of one evidence archive">
-        <button className="button" type="button" onClick={() => void runAction("instructions", onOpenInstructions)}>
+        <button
+          className="button"
+          id="setup-open-guide"
+          data-action-id={SETUP_ACTION_IDS.openGuide}
+          type="button"
+          disabled={!onOpenInstructions || action === "instructions"}
+          onClick={() => void runAction(
+            "instructions",
+            SETUP_ACTION_IDS.openGuide,
+            onOpenInstructions,
+            "Opening the setup guide…",
+            "Setup guide opened in a new tab.",
+          )}
+        >
           <BookOpen size={15} aria-hidden="true" /> Setup guide
         </button>
       </PageHeader>
@@ -246,7 +302,7 @@ export default function SetupPage({
             then shows the storage impact before PostgreSQL and the optional vector projection are built.
           </p>
         </div>
-        <div className="setup-hero-status" aria-label="Setup summary">
+        <div className="setup-hero-status" role="group" aria-label="Setup summary">
           <Badge tone={isRunning ? "partial" : progress?.status === "complete" ? "success" : "neutral"}>
             {progressLabel(progress)}
           </Badge>
@@ -261,6 +317,8 @@ export default function SetupPage({
         {STEP_DETAILS.map(({ id, number, label, description, icon: Icon }) => (
           <button
             className={`setup-step-card ${activeStep === id ? "active" : ""}`}
+            id={`setup-step-${id}`}
+            data-action-id={`setup.step.${id}`}
             type="button"
             key={id}
             aria-current={activeStep === id ? "step" : undefined}
@@ -275,21 +333,15 @@ export default function SetupPage({
         ))}
       </nav>
 
-      {actionError ? <ErrorNotice message={actionError} /> : null}
+      {feedback ? <ActionNotice feedback={feedback} /> : null}
 
       <section className="panel setup-section setup-machines" id="setup-section-machines" aria-labelledby="setup-machines-title">
         <SectionHeading step="01" eyebrow="Source computers" title="Connect the machines that own the chats" id="setup-machines-title">
-          Machine identity is recorded with each source. The central database can combine machines without copying their source folders.
+          Each writer registers itself when it first syncs to the shared archive. This page checks PostgreSQL registrations; it never scans your network.
         </SectionHeading>
         <div className="setup-machine-list" aria-live="polite">
-          {machines.map((machine) => (
-            <button
-              className="setup-machine-card"
-              type="button"
-              key={machine.id}
-              onClick={() => onSelectMachine?.(machine.id)}
-              disabled={!onSelectMachine}
-            >
+          {machines.map((machine) => {
+            const content = <>
               <span className="setup-machine-icon"><Monitor size={18} aria-hidden="true" /></span>
               <span className="setup-machine-copy">
                 <strong>{machine.name}</strong>
@@ -304,8 +356,23 @@ export default function SetupPage({
                 {machine.lastSeenAt ? <small>Seen {formatDate(machine.lastSeenAt, true)}</small> : null}
               </span>
               {onSelectMachine ? <ChevronRight size={16} aria-hidden="true" /> : null}
-            </button>
-          ))}
+            </>;
+            return onSelectMachine ? (
+              <button
+                className="setup-machine-card"
+                id={`setup-machine-${machine.id}`}
+                data-action-id="setup.machine.select"
+                data-machine-id={machine.id}
+                type="button"
+                key={machine.id}
+                onClick={() => onSelectMachine(machine.id)}
+              >
+                {content}
+              </button>
+            ) : (
+              <div className="setup-machine-card" key={machine.id}>{content}</div>
+            );
+          })}
           {machines.length === 0 ? (
             <div className="setup-empty-card">
               <CloudCog size={21} aria-hidden="true" />
@@ -313,13 +380,47 @@ export default function SetupPage({
             </div>
           ) : null}
         </div>
-        <div className="setup-section-actions">
-          <button className="button button-primary" type="button" onClick={() => void runAction("discover", onDiscoverMachine)} disabled={action === "discover"}>
-            {action === "discover" ? <LoaderCircle className="setup-spin" size={15} aria-hidden="true" /> : <RefreshCw size={15} aria-hidden="true" />}
-            {action === "discover" ? "Discovering…" : machines.length ? "Discover another machine" : "Discover this machine"}
-          </button>
-          <span className="setup-inline-note"><Info size={14} aria-hidden="true" /> A remote machine needs its own writer configuration and access to this database over Tailscale.</span>
-        </div>
+        {!showMachineSetup ? (
+          <div className="setup-section-actions">
+            <button
+              className="button button-primary"
+              id="setup-add-machine"
+              data-action-id={SETUP_ACTION_IDS.addMachine}
+              type="button"
+              onClick={() => {
+                setShowMachineSetup(true);
+                setFeedback({
+                  actionId: SETUP_ACTION_IDS.addMachine,
+                  status: "success",
+                  message: "Machine setup steps are shown below. No network scan has started.",
+                });
+              }}
+            >
+              <Plus size={15} aria-hidden="true" /> Add another machine
+            </button>
+            <span className="setup-inline-note"><Info size={14} aria-hidden="true" /> Already configured it? Open the steps, then check the shared archive.</span>
+          </div>
+        ) : (
+          <MachineOnboarding
+            checking={action === "refresh-machines"}
+            guideAvailable={Boolean(onOpenInstructions)}
+            refreshAvailable={Boolean(onRefreshMachines)}
+            onOpenGuide={() => void runAction(
+              "instructions",
+              SETUP_ACTION_IDS.openGuide,
+              onOpenInstructions,
+              "Opening the writer setup guide…",
+              "Writer setup guide opened in a new tab.",
+            )}
+            onRefresh={() => void runAction(
+              "refresh-machines",
+              SETUP_ACTION_IDS.refreshMachines,
+              onRefreshMachines,
+              "Checking machine registrations in the shared archive…",
+              "Shared archive checked. New machines appear after their first writer sync.",
+            )}
+          />
+        )}
       </section>
 
       <div className="setup-two-column">
@@ -327,10 +428,10 @@ export default function SetupPage({
           <SectionHeading step="02" eyebrow="History window" title="Choose how far back to process" id="setup-history-title">
             Start small if you are validating the installation. You can extend the range and rerun the derived indexes later.
           </SectionHeading>
-          <div className="setup-quick-ranges" aria-label="History presets">
+          <div className="setup-quick-ranges" role="group" aria-label="History presets">
             {QUICK_RANGES.map((range) => {
               const selected = rangeSelected(range.value, config);
-              return <button className={selected ? "active" : ""} type="button" aria-pressed={selected} key={range.value} onClick={() => applyQuickRange(range.value, updateConfig)}>{range.label}</button>;
+              return <button className={selected ? "active" : ""} id={`setup-range-${range.value}`} data-action-id={`setup.scope.range.${range.value}`} type="button" aria-pressed={selected} key={range.value} onClick={() => applyQuickRange(range.value, updateConfig)}>{range.label}</button>;
             })}
           </div>
           <div className="setup-date-grid">
@@ -343,12 +444,12 @@ export default function SetupPage({
             <div className="setup-provider-grid">
               {PROVIDERS.map((provider) => (
                 <label className="setup-choice-card" key={provider.value}>
-                  <input type="checkbox" checked={config.providers.includes(provider.value)} onChange={(event) => updateProviders(provider.value, event.target.checked, config, updateConfig)} />
+                  <input id={`setup-source-${provider.value}`} type="checkbox" checked={config.providers.includes(provider.value)} onChange={(event) => updateProviders(provider.value, event.target.checked, config, updateConfig)} />
                   <span><strong>{provider.label}</strong><small>{provider.description}</small></span>
                 </label>
               ))}
               <label className="setup-choice-card">
-                <input type="checkbox" checked={config.includeGitMetadata} onChange={(event) => updateConfig({ includeGitMetadata: event.target.checked })} />
+                <input id="setup-source-git" type="checkbox" checked={config.includeGitMetadata} onChange={(event) => updateConfig({ includeGitMetadata: event.target.checked })} />
                 <span><strong>Git metadata</strong><small>Repositories, commits, paths—not file contents</small></span>
               </label>
             </div>
@@ -396,25 +497,86 @@ export default function SetupPage({
             Preview uses the selected machines, date range, providers, and reasoning policy. Start only after the estimate looks right.
           </SectionHeading>
           <div className="setup-build-actions">
-            <button className="button" type="button" onClick={() => void preview()} disabled={!onPreview || action === "preview" || isRunning}>
+            <button className="button" id="setup-preview-build" data-action-id={SETUP_ACTION_IDS.previewBuild} type="button" onClick={() => void preview()} disabled={!onPreview || action === "preview" || isRunning}>
               {action === "preview" ? <LoaderCircle className="setup-spin" size={15} aria-hidden="true" /> : <HardDrive size={15} aria-hidden="true" />}
               {action === "preview" ? "Calculating…" : "Preview build"}
             </button>
-            <button className="button button-primary" type="button" onClick={() => void runAction("start", onStartBuild ? () => onStartBuild(config) : undefined)} disabled={!onStartBuild || isRunning || config.providers.length === 0}>
+            <button className="button button-primary" id="setup-start-build" data-action-id={SETUP_ACTION_IDS.startBuild} type="button" onClick={() => void runAction(
+              "start",
+              SETUP_ACTION_IDS.startBuild,
+              onStartBuild ? () => onStartBuild(config) : undefined,
+              "Starting the archive build…",
+              "Archive build started. Live progress is shown below.",
+            )} disabled={!onStartBuild || isRunning || config.providers.length === 0}>
               <Play size={15} aria-hidden="true" /> {isRunning ? "Build in progress" : "Start archive build"}
             </button>
           </div>
         </div>
 
         <EstimateSummary estimate={displayedEstimate} reasoningIncluded={config.includeReasoningInProjection} />
-        <BuildProgress progress={progress} onCancel={onCancelBuild ? () => void runAction("cancel", onCancelBuild) : undefined} cancelling={action === "cancel"} />
+        <BuildProgress progress={progress} onCancel={onCancelBuild ? () => void runAction(
+          "cancel",
+          SETUP_ACTION_IDS.cancelBuild,
+          onCancelBuild,
+          "Requesting a safe stop…",
+          "Stop requested. The current command will exit safely.",
+        ) : undefined} cancelling={action === "cancel"} />
       </section>
+    </div>
+  );
+}
 
-      <section className="setup-multi-machine-note" aria-labelledby="setup-multi-title">
-        <div className="setup-multi-icon"><Server size={19} aria-hidden="true" /></div>
-        <div><span className="eyebrow">Multi-machine guide</span><h2 id="setup-multi-title">One shared database, many read-only source writers.</h2><p>Install the same archive worker on each computer, give it a unique machine name, and point it at this PostgreSQL host. Only the central worker should run migrations and global derived refreshes.</p></div>
-        <button className="button" type="button" onClick={() => void runAction("instructions", onOpenInstructions)}><BookOpen size={15} aria-hidden="true" /> Open instructions</button>
-      </section>
+function ActionNotice({ feedback }: { feedback: ActionFeedback }) {
+  const Icon = feedback.status === "pending" ? LoaderCircle : feedback.status === "success" ? Check : TriangleAlert;
+  return (
+    <div
+      className={`setup-action-notice ${feedback.status}`}
+      role={feedback.status === "error" ? "alert" : "status"}
+      aria-live="polite"
+      data-action-id={feedback.actionId}
+    >
+      <Icon className={feedback.status === "pending" ? "setup-spin" : undefined} size={16} aria-hidden="true" />
+      <span><strong>{feedback.status === "pending" ? "Working" : feedback.status === "success" ? "Done" : "Needs attention"}</strong><small>{feedback.message}</small></span>
+    </div>
+  );
+}
+
+function MachineOnboarding({
+  checking,
+  guideAvailable,
+  refreshAvailable,
+  onOpenGuide,
+  onRefresh,
+}: {
+  checking: boolean;
+  guideAvailable: boolean;
+  refreshAvailable: boolean;
+  onOpenGuide: () => void;
+  onRefresh: () => void;
+}) {
+  return (
+    <div className="setup-machine-onboarding" role="group" aria-labelledby="setup-machine-onboarding-title">
+      <div className="setup-machine-onboarding-header">
+        <div>
+          <span className="eyebrow">Add a writer</span>
+          <h3 id="setup-machine-onboarding-title">Connect the other computer, then check here</h3>
+        </div>
+        <Badge tone="neutral">No network scan</Badge>
+      </div>
+      <ol>
+        <li><strong>On the other computer, open the writer setup guide.</strong><span>Install Open Chat Reviewer and connect it to this central archive over Tailscale.</span></li>
+        <li><strong>Run its first writer sync.</strong><span>The source folders stay on that computer and are read-only.</span></li>
+        <li><strong>Come back and check the shared archive.</strong><span>The machine appears after its first successful database registration.</span></li>
+      </ol>
+      <div className="setup-machine-onboarding-actions">
+        <button className="button" id="setup-open-writer-guide" data-action-id={SETUP_ACTION_IDS.openGuide} type="button" disabled={!guideAvailable} onClick={onOpenGuide}>
+          <BookOpen size={15} aria-hidden="true" /> Open writer guide
+        </button>
+        <button className="button button-primary" id="setup-refresh-machines" data-action-id={SETUP_ACTION_IDS.refreshMachines} type="button" disabled={!refreshAvailable || checking} onClick={onRefresh}>
+          {checking ? <LoaderCircle className="setup-spin" size={15} aria-hidden="true" /> : <RefreshCw size={15} aria-hidden="true" />}
+          {checking ? "Checking shared archive…" : "Check shared archive"}
+        </button>
+      </div>
     </div>
   );
 }
@@ -445,7 +607,7 @@ function BuildProgress({ progress, onCancel, cancelling }: { progress: SetupProg
   const failed = progress.status === "failed" || progress.status === "interrupted";
   const complete = progress.status === "complete";
   const terminal = complete || failed || progress.status === "cancelled";
-  return <div className={`setup-progress ${failed ? "failed" : complete ? "complete" : "active"}`} aria-labelledby="setup-progress-title"><div className="setup-progress-header"><div><span className="eyebrow">Build status</span><h3 id="setup-progress-title">{progressLabel(progress)}</h3></div><strong>{Math.round(percent)}%</strong></div><div className="setup-progress-track" role="progressbar" aria-label="Archive build progress" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(percent)}><span style={{ width: `${percent}%` }} /></div><div className="setup-progress-meta"><span>{progress.message ?? progress.phase ?? (failed ? "The build stopped with an error." : complete ? "The archive and selected projections are current." : "Preparing the next phase…")}</span>{progress.estimatedSecondsRemaining != null && !terminal ? <span>{formatDuration(progress.estimatedSecondsRemaining)} remaining</span> : null}{onCancel && !terminal ? <button className="text-button" type="button" onClick={onCancel} disabled={cancelling}>{cancelling ? "Stopping…" : "Stop build"}</button> : null}</div>{failed && progress.error ? <p className="setup-progress-error"><TriangleAlert size={14} aria-hidden="true" /> {progress.error}</p> : null}{progress.startedAt ? <small className="setup-progress-time">Started {formatDate(progress.startedAt, true)}</small> : null}</div>;
+  return <div className={`setup-progress ${failed ? "failed" : complete ? "complete" : "active"}`} aria-labelledby="setup-progress-title"><div className="setup-progress-header"><div><span className="eyebrow">Build status</span><h3 id="setup-progress-title">{progressLabel(progress)}</h3></div><strong>{Math.round(percent)}%</strong></div><div className="setup-progress-track" role="progressbar" aria-label="Archive build progress" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(percent)}><span style={{ width: `${percent}%` }} /></div><div className="setup-progress-meta"><span>{progress.message ?? progress.phase ?? (failed ? "The build stopped with an error." : complete ? "The archive and selected projections are current." : "Preparing the next phase…")}</span>{progress.estimatedSecondsRemaining != null && !terminal ? <span>{formatDuration(progress.estimatedSecondsRemaining)} remaining</span> : null}{onCancel && !terminal ? <button className="text-button" id="setup-cancel-build" data-action-id={SETUP_ACTION_IDS.cancelBuild} type="button" onClick={onCancel} disabled={cancelling}>{cancelling ? "Stopping…" : "Stop build"}</button> : null}</div>{failed && progress.error ? <p className="setup-progress-error"><TriangleAlert size={14} aria-hidden="true" /> {progress.error}</p> : null}{progress.startedAt ? <small className="setup-progress-time">Started {formatDate(progress.startedAt, true)}</small> : null}</div>;
 }
 
 function progressPercent(progress: SetupProgress): number {

@@ -33,6 +33,11 @@ installed as a writer and pointed at the central database. It contributes only t
 chat and Git roots configured on that computer. Its machine ID is stored with every
 source so identical paths on two computers do not collapse into one source.
 
+The Setup page does not perform a LAN or Tailscale scan. Choose **Add another machine**,
+follow the writer guide on that computer, run its first sync, then choose **Check shared
+archive**. The machine is discovered from its PostgreSQL registration. Setup-button
+behavior and feedback identifiers are documented in [UI action and feedback rules](UI_ACTIONS.md).
+
 For a single-computer archive, use the central role with a loopback bind. For multiple
 computers, put PostgreSQL, the web process, and the derived worker on the central node
 and connect writer nodes over a private Tailscale network. The web process has no

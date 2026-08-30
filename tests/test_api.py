@@ -71,6 +71,12 @@ def test_setup_preview_and_map_date_validation(corpus, monkeypatch) -> None:
     assert status.json()["machine"]["id"] == str(settings.machine_id)
     assert "postgresql" not in repr(status.json()).lower()
 
+    machines = client.get("/api/setup/machines")
+    assert machines.status_code == 200
+    assert machines.json()["method"] == "shared_database"
+    assert machines.json()["network_scan"] is False
+    assert machines.json()["machines"][0]["machine_id"] == str(settings.machine_id)
+
     preview = client.post(
         "/api/setup/preview",
         json={

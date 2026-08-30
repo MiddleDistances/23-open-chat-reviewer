@@ -70,6 +70,9 @@ class SetupDatabase(Protocol):
     def snapshot(self) -> DatabaseSnapshot:
         """Return aggregate facts without returning raw payload or message text."""
 
+    def machines(self) -> tuple[MachineNode, ...]:
+        """Return machines that have registered through the shared archive."""
+
     def estimate_scope(
         self,
         scope: HistoryScope,
@@ -446,6 +449,35 @@ class SetupStatus:
 
 
 @dataclass(frozen=True, slots=True)
+class MachineDiscovery:
+    """Credential-free result of checking the shared archive's machine registry."""
+
+    generated_at: datetime
+    current_machine_id: str
+    available: bool
+    machines: tuple[MachineNode, ...] = ()
+    error: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        count = len(self.machines)
+        return {
+            "generated_at": _iso(self.generated_at),
+            "current_machine_id": self.current_machine_id,
+            "available": self.available,
+            "method": "shared_database",
+            "network_scan": False,
+            "machines": [machine.to_dict() for machine in self.machines],
+            "message": (
+                f"Checked the shared archive: {count} registered "
+                f"machine{'s' if count != 1 else ''}. No network scan was performed."
+                if self.available
+                else "The shared archive could not be checked. No network scan was performed."
+            ),
+            "error": self.error,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class SetupPreview:
     """Full preview for the setup landing page."""
 
@@ -523,6 +555,31 @@ class SetupPlanner:
             roots=self._roots(),
             database=health,
         )
+
+    def machines(self) -> MachineDiscovery:
+        """Check PostgreSQL registrations; this never scans the local network."""
+
+        machine = self._machine_identity()
+        try:
+            reader = getattr(self.database, "machines", None)
+            machines = reader() if callable(reader) else self.database.snapshot().machines
+            if not isinstance(machines, tuple) or any(
+                not isinstance(item, MachineNode) for item in machines
+            ):
+                raise TypeError("invalid machine registry")
+            return MachineDiscovery(
+                generated_at=datetime.now(tz=UTC),
+                current_machine_id=machine.id,
+                available=True,
+                machines=machines,
+            )
+        except Exception as exc:
+            return MachineDiscovery(
+                generated_at=datetime.now(tz=UTC),
+                current_machine_id=machine.id,
+                available=False,
+                error=_safe_error(exc),
+            )
 
     def _read_snapshot(self) -> tuple[DatabaseSnapshot, str | None]:
         try:
@@ -648,6 +705,12 @@ class PostgresSetupDatabase:
             machines=machines,
             semantic_runs=semantic_runs,
         )
+
+    def machines(self) -> tuple[MachineNode, ...]:
+        """Read registered machines without computing the full setup preview."""
+
+        with database(self._database_url, read_only=True) as connection:
+            return self._machines(connection)
 
     def estimate_scope(self, scope: HistoryScope, providers: tuple[str, ...]) -> ScopeEstimate:
         clauses, parameters = _event_scope_clause(scope, providers)

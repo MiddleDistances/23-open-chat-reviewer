@@ -48,4 +48,17 @@ describe("summary agent setup", () => {
     expect(screen.getByRole("button", { name: /summaries are running/i })).toBeDisabled();
     expect(screen.getByRole("radio", { name: /codex cli/i })).toBeDisabled();
   });
+
+  it("exposes stable ids for every summary-agent action", () => {
+    render(<SummaryAgentPanel status={status} onRun={vi.fn()} />);
+
+    for (const button of screen.getAllByRole("button")) {
+      expect(button, button.textContent ?? "unnamed button").toHaveAttribute("id");
+      expect(button, button.textContent ?? "unnamed button").toHaveAttribute("data-action-id");
+    }
+    expect(screen.getByLabelText("Conversation history")).toHaveAttribute(
+      "data-action-id",
+      "summary.scope.days",
+    );
+  });
 });

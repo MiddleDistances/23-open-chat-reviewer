@@ -57,6 +57,24 @@ interface SetupPreviewResponse {
   warnings: string[];
 }
 
+interface SetupMachinesResponse {
+  generated_at: string;
+  current_machine_id: string;
+  available: boolean;
+  method: "shared_database";
+  network_scan: false;
+  machines: Array<{
+    machine_id: string;
+    name: string;
+    last_seen_at: string | null;
+    source_count: number;
+    session_count: number;
+    event_count: number;
+  }>;
+  message: string;
+  error: string | null;
+}
+
 function requestBody(config: SetupConfig) {
   return {
     history_start: config.historyStart || null,
@@ -99,6 +117,8 @@ export default function SetupRoute() {
   const { data: progress, setData: setProgress } =
     useApi<SetupProgress>("/api/setup/build");
   const [preview, setPreview] = useState<SetupPreviewResponse | null>(null);
+  const { data: machineRegistry, setData: setMachineRegistry } =
+    useApi<SetupMachinesResponse>("/api/setup/machines");
   const {
     data: summaryAgent,
     loading: summaryAgentLoading,
@@ -130,13 +150,19 @@ export default function SetupRoute() {
   }, [summaryAgent?.run.active, refreshSummaryAgent]);
 
   const machines = useMemo<SetupMachine[]>(() => {
-    if (preview?.machines.length) {
-      return preview.machines.map((machine) => {
+    const registered = machineRegistry?.machines.length
+      ? machineRegistry.machines
+      : preview?.machines ?? [];
+    if (registered.length) {
+      return registered.map((machine) => {
         const isCurrent = machine.machine_id === setupStatus?.machine.id;
+        const sessionCount = "session_count" in machine && typeof machine.session_count === "number"
+          ? machine.session_count
+          : null;
         return {
           id: machine.machine_id,
           name: machine.name,
-          platform: isCurrent ? setupStatus?.machine.hostname : null,
+          platform: isCurrent ? setupStatus?.machine.hostname : "Registered writer",
           status: isCurrent ? "current" : "connected",
           sourceRoots: isCurrent
             ? (setupStatus?.roots ?? [])
@@ -149,7 +175,7 @@ export default function SetupRoute() {
             : [],
           lastSeenAt: machine.last_seen_at,
           eventCount: machine.event_count,
-          note: `${machine.source_count.toLocaleString()} sources`,
+          note: `${machine.source_count.toLocaleString()} sources${sessionCount == null ? "" : ` · ${sessionCount.toLocaleString()} sessions`}`,
         } satisfies SetupMachine;
       });
     }
@@ -177,7 +203,7 @@ export default function SetupRoute() {
         note: setupStatus.database.error,
       },
     ];
-  }, [preview?.machines, progress, setupStatus]);
+  }, [machineRegistry?.machines, preview?.machines, progress, setupStatus]);
 
   async function previewBuild(config: SetupConfig) {
     const result = await api<SetupPreviewResponse>("/api/setup/preview", {
@@ -201,6 +227,13 @@ export default function SetupRoute() {
     setProgress(next);
   }
 
+  async function refreshMachines() {
+    const result = await api<SetupMachinesResponse>("/api/setup/machines");
+    setMachineRegistry(result);
+    if (!result.available) throw new Error(result.error ?? result.message);
+    return result.message;
+  }
+
   async function runSummaries(provider: SummaryAgentId, days: number) {
     await api("/api/summary-agent", {
       method: "PUT",
@@ -221,7 +254,7 @@ export default function SetupRoute() {
       onPreview={previewBuild}
       onStartBuild={startBuild}
       onCancelBuild={cancelBuild}
-      onDiscoverMachine={() => refreshStatus()}
+      onRefreshMachines={refreshMachines}
       onOpenInstructions={() =>
         window.open(
           "https://github.com/MiddleDistances/23-open-chat-reviewer/blob/main/docs/SETUP_AND_STORAGE.md",

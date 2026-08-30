@@ -97,6 +97,8 @@ export default function SummaryAgentPanel({ status, loading = false, error, onRu
           return (
             <button
               className={`summary-agent-choice ${checked ? "selected" : ""}`}
+              id={`summary-agent-${provider.id}`}
+              data-action-id={`summary.agent.select.${provider.id}`}
               type="button"
               role="radio"
               aria-checked={checked}
@@ -120,7 +122,7 @@ export default function SummaryAgentPanel({ status, loading = false, error, onRu
       <div className="summary-agent-actions">
         <label>
           <span>Conversation history</span>
-          <select value={days} onChange={(event) => setDays(Number(event.target.value))} disabled={active}>
+          <select id="summary-history-window" data-action-id="summary.scope.days" value={days} onChange={(event) => setDays(Number(event.target.value))} disabled={active}>
             <option value={7}>Last 7 days</option>
             <option value={30}>Last 30 days</option>
             <option value={90}>Last 90 days</option>
@@ -129,6 +131,8 @@ export default function SummaryAgentPanel({ status, loading = false, error, onRu
         </label>
         <button
           className="primary-button"
+          id="summary-run"
+          data-action-id="summary.run.start"
           type="button"
           disabled={!selectedProvider?.installed || selectedProvider?.authenticated === false || active || submitting}
           onClick={run}

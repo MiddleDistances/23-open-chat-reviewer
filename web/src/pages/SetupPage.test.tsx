@@ -41,6 +41,8 @@ describe("archive setup page", () => {
     expect(screen.getByRole("checkbox", { name: /include readable reasoning in text search/i })).not.toBeChecked();
     expect(screen.getByRole("checkbox", { name: /include reasoning in the vector projection/i })).not.toBeChecked();
     expect(screen.getByText(/repositories, commits, paths—not file contents/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Setup guide" })).toHaveAttribute("data-action-id", "setup.guide.open");
+    expect(screen.getByRole("button", { name: "Preview build" })).toHaveAttribute("id", "setup-preview-build");
   });
 
   it("reports draft changes and keeps raw, search, and semantic controls distinct", () => {
@@ -70,6 +72,27 @@ describe("archive setup page", () => {
 
     await waitFor(() => expect(onPreview).toHaveBeenCalledWith(expect.objectContaining({ historyStart: "2026-01-01", historyEnd: "2026-08-30" })));
     expect(await screen.findByText("2.9 MiB")).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent(/build estimate is ready/i);
+  });
+
+  it("explains machine registration and reports a shared-database check", async () => {
+    const onRefreshMachines = vi.fn().mockResolvedValue(
+      "Checked the shared archive: 2 registered machines. No network scan was performed.",
+    );
+    render(<SetupPage machines={[machine]} onRefreshMachines={onRefreshMachines} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Add another machine" }));
+    expect(screen.getByText("No network scan")).toBeInTheDocument();
+    expect(screen.getByText(/run its first writer sync/i)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Check shared archive" }));
+
+    await waitFor(() => expect(onRefreshMachines).toHaveBeenCalledTimes(1));
+    expect(screen.getByRole("status")).toHaveTextContent(/2 registered machines/i);
+    expect(screen.getByRole("button", { name: "Check shared archive" })).toHaveAttribute(
+      "data-action-id",
+      "setup.machine.refresh",
+    );
   });
 
   it("exposes progress semantics and machine selection to the host", () => {
@@ -79,8 +102,32 @@ describe("archive setup page", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /ubuntu fast/i }));
     expect(onSelectMachine).toHaveBeenCalledWith("ubuntu-fast");
+    expect(screen.getByRole("button", { name: /ubuntu fast/i })).toHaveAttribute(
+      "data-action-id",
+      "setup.machine.select",
+    );
     expect(screen.getByRole("progressbar", { name: /archive build progress/i })).toHaveAttribute("aria-valuenow", "30");
     fireEvent.click(screen.getByRole("button", { name: "Stop build" }));
     expect(onCancelBuild).toHaveBeenCalledTimes(1);
+  });
+
+  it("gives every rendered button a stable browser id and semantic action id", () => {
+    render(
+      <SetupPage
+        machines={[machine]}
+        onPreview={vi.fn()}
+        onStartBuild={vi.fn()}
+        onCancelBuild={vi.fn()}
+        onRefreshMachines={vi.fn()}
+        onSelectMachine={vi.fn()}
+        onOpenInstructions={vi.fn()}
+        progress={{ status: "syncing", completed: 1, total: 2 }}
+      />,
+    );
+
+    for (const button of screen.getAllByRole("button")) {
+      expect(button, button.textContent ?? "unnamed button").toHaveAttribute("id");
+      expect(button, button.textContent ?? "unnamed button").toHaveAttribute("data-action-id");
+    }
   });
 });
