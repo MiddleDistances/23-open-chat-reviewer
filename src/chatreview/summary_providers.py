@@ -54,7 +54,7 @@ class OpenAICompatibleProvider:
     api_key: str | None = None
     headers: dict[str, str] | None = None
     timeout: float = 600
-    max_tokens: int = 1_200
+    max_tokens: int = 16_384
     enable_thinking: bool | None = None
 
     def __post_init__(self) -> None:
@@ -128,7 +128,7 @@ class AnthropicProvider:
     base_url: str = "https://api.anthropic.com"
     api_version: str = "2023-06-01"
     timeout: float = 600
-    max_tokens: int = 1_200
+    max_tokens: int = 16_384
 
     def __post_init__(self) -> None:
         self.base_url = _validated_base_url(self.base_url)
@@ -189,7 +189,7 @@ class OpenAIResponsesProvider:
     api_key: str | None = None
     headers: dict[str, str] | None = None
     timeout: float = 600
-    max_tokens: int = 1_200
+    max_tokens: int = 16_384
 
     def __post_init__(self) -> None:
         self.base_url = _validated_base_url(self.base_url)
@@ -545,7 +545,7 @@ def provider_from_environment(
         raise SummaryProviderError("CHATREVIEW_SUMMARY_MODEL is required")
     resolved_key = api_key if api_key is not None else os.environ.get("CHATREVIEW_SUMMARY_API_KEY")
     timeout = float(os.environ.get("CHATREVIEW_SUMMARY_TIMEOUT", "600"))
-    max_tokens = int(os.environ.get("CHATREVIEW_SUMMARY_MAX_TOKENS", "1200"))
+    max_tokens = int(os.environ.get("CHATREVIEW_SUMMARY_MAX_TOKENS", "16384"))
     disable_thinking = os.environ.get("CHATREVIEW_SUMMARY_DISABLE_THINKING", "").strip().lower()
 
     if kind in {"openai", "openai-compatible", "local", "qwen"}:

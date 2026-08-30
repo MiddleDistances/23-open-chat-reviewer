@@ -161,7 +161,8 @@ review it before installation.
 ## Shared settings
 
 - `CHATREVIEW_SUMMARY_TIMEOUT` defaults to 600 seconds.
-- `CHATREVIEW_SUMMARY_MAX_TOKENS` defaults to 1200.
+- `CHATREVIEW_SUMMARY_MAX_TOKENS` defaults to 16384. This is a ceiling, not a target;
+  schema-conforming providers normally stop as soon as the compact JSON is complete.
 - `CHATREVIEW_SUMMARY_HEADERS_JSON` adds string-valued request headers.
 - `CHATREVIEW_ENABLE_SUMMARIES=1` enables summaries in the unattended worker.
 
