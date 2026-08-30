@@ -281,10 +281,22 @@ def create_app(settings: Settings) -> FastAPI:
     def summary_agent_status() -> dict[str, Any]:
         with database(settings.database_url, read_only=True) as connection:
             latest = list_resume_surfaces(connection, limit=1).get("latest_run")
+        run = summary_runs.status()
+        if not run["active"] and latest and latest.get("status") == "running":
+            run = {
+                "status": "running",
+                "active": True,
+                "provider": load_summary_agent(settings.data_dir),
+                "message": (
+                    f"Summarizing {int(latest.get('selected_count') or 0)} selected work threads"
+                ),
+                "started_at": latest.get("started_at"),
+                "result": None,
+            }
         return {
             "selected": load_summary_agent(settings.data_dir),
             "providers": summary_agent_catalog(),
-            "run": summary_runs.status(),
+            "run": run,
             "latest_run": latest,
         }
 
@@ -295,6 +307,10 @@ def create_app(settings: Settings) -> FastAPI:
 
     @app.post("/api/summary-agent/run", status_code=202)
     def start_summary_run(payload: SummaryRunInput) -> dict[str, Any]:
+        with database(settings.database_url, read_only=True) as connection:
+            latest = list_resume_surfaces(connection, limit=1).get("latest_run")
+        if latest and latest.get("status") == "running":
+            raise HTTPException(409, "a summary refresh is already running")
         try:
             return summary_runs.start(
                 SummaryRunPlan(

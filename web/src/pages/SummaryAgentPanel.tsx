@@ -39,6 +39,7 @@ export interface SummaryAgentStatus {
     reused_count?: number;
     failed_count?: number;
     model_name?: string;
+    selected_count?: number;
   } | null;
 }
 
