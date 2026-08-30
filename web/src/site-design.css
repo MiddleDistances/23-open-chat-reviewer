@@ -1801,6 +1801,46 @@ button.setup-machine-card:not(:disabled) {
   gap: 7px;
   font-size: 12px;
 }
+.setup-embedding-model {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+  padding: 16px;
+  border: 1px solid #dedfe1;
+  border-radius: 4px;
+  background: #fafafa;
+}
+.setup-embedding-copy,
+.setup-embedding-status {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+.setup-embedding-copy > div,
+.setup-embedding-status > div {
+  display: grid;
+  flex: 1;
+  gap: 4px;
+}
+.setup-embedding-copy span,
+.setup-embedding-status small {
+  color: #5c5e62;
+}
+.setup-embedding-model select {
+  width: 100%;
+  min-height: 40px;
+  padding: 8px 10px;
+  border: 1px solid #d0d1d2;
+  border-radius: 4px;
+  background: #ffffff;
+}
+.setup-embedding-status {
+  align-items: center;
+}
+.setup-embedding-status > a {
+  white-space: nowrap;
+  font-size: 12px;
+}
 .setup-build-header {
   align-items: flex-start;
 }

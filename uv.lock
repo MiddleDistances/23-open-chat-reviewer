@@ -700,6 +700,7 @@ dev = [
 ]
 semantic = [
     { name = "hdbscan" },
+    { name = "huggingface-hub" },
     { name = "llvmlite" },
     { name = "numba" },
     { name = "numpy" },
@@ -720,6 +721,7 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.116" },
     { name = "hdbscan", marker = "extra == 'semantic'", specifier = ">=0.8.40" },
     { name = "httpx", marker = "extra == 'dev'", specifier = ">=0.28" },
+    { name = "huggingface-hub", marker = "extra == 'semantic'", specifier = ">=0.34" },
     { name = "llvmlite", marker = "extra == 'semantic'", specifier = ">=0.44" },
     { name = "numba", marker = "extra == 'semantic'", specifier = ">=0.61" },
     { name = "numpy", marker = "extra == 'semantic'", specifier = ">=2.0" },

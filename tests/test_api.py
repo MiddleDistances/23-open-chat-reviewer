@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 
 from chatreview.api import ProjectAliasInput, create_app
+from chatreview.embedding_models import EmbeddingModelManager
 from chatreview.episodes import EpisodeBuilder
 from chatreview.ingest import Ingestor
 from chatreview.providers import ClaudeAdapter, CodexAdapter
@@ -65,6 +66,28 @@ def test_setup_preview_and_map_date_validation(corpus, monkeypatch) -> None:
         [CodexAdapter(settings.codex_root), ClaudeAdapter(settings.claude_root)],
     ).run()
     client = TestClient(create_app(settings))
+
+    model_status = {
+        "id": "qwen3-embedding-0.6b",
+        "label": "Balanced local (recommended)",
+        "description": "Private local embeddings",
+        "model_name": "Qwen/Qwen3-Embedding-0.6B",
+        "revision": "pinned",
+        "dimensions": 512,
+        "source_url": "https://huggingface.co/Qwen/Qwen3-Embedding-0.6B",
+        "status": "not_downloaded",
+        "message": "Not downloaded on this machine",
+        "error": None,
+    }
+    monkeypatch.setattr(EmbeddingModelManager, "catalog", lambda self: [model_status])
+    monkeypatch.setattr(EmbeddingModelManager, "start", lambda self, preset_id: model_status)
+
+    models = client.get("/api/setup/embedding-models")
+    download = client.post("/api/setup/embedding-models/qwen3-embedding-0.6b/download")
+    assert models.status_code == 200
+    assert models.json()[0]["status"] == "not_downloaded"
+    assert download.status_code == 202
+    assert settings.database_url not in repr(models.json())
 
     status = client.get("/api/setup/status")
     assert status.status_code == 200

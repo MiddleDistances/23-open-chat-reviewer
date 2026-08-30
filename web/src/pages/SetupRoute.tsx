@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, useApi } from "../api";
 import SetupPage, {
+  type EmbeddingModelStatus,
   type SetupConfig,
   type SetupEstimate,
   type SetupMachine,
@@ -102,6 +103,7 @@ function requestBody(config: SetupConfig) {
     preserve_encrypted_reasoning: config.preserveEncryptedReasoning,
     include_readable_reasoning_in_search: config.includeReadableReasoningInSearch,
     include_reasoning_in_projection: config.includeReasoningInProjection,
+    embedding_preset: config.embeddingPreset,
   };
 }
 
@@ -136,6 +138,10 @@ export default function SetupRoute() {
     useApi<SetupConnectionResponse>("/api/setup/connection");
   const { data: progress, setData: setProgress } =
     useApi<SetupProgress>("/api/setup/build");
+  const {
+    data: embeddingModels,
+    refresh: refreshEmbeddingModels,
+  } = useApi<EmbeddingModelStatus[]>("/api/setup/embedding-models");
   const [preview, setPreview] = useState<SetupPreviewResponse | null>(null);
   const { data: machineRegistry, setData: setMachineRegistry } =
     useApi<SetupMachinesResponse>("/api/setup/machines");
@@ -168,6 +174,12 @@ export default function SetupRoute() {
     const timer = window.setInterval(refreshSummaryAgent, 3_000);
     return () => window.clearInterval(timer);
   }, [summaryAgent?.run.active, refreshSummaryAgent]);
+
+  useEffect(() => {
+    if (!embeddingModels?.some((model) => model.status === "queued" || model.status === "downloading")) return;
+    const timer = window.setInterval(refreshEmbeddingModels, 2_000);
+    return () => window.clearInterval(timer);
+  }, [embeddingModels, refreshEmbeddingModels]);
 
   const machines = useMemo<SetupMachine[]>(() => {
     const registered = machineRegistry?.machines.length
@@ -267,6 +279,13 @@ export default function SetupRoute() {
     setProgress(next);
   }
 
+  async function downloadEmbeddingModel(presetId: string) {
+    await api<EmbeddingModelStatus>(`/api/setup/embedding-models/${encodeURIComponent(presetId)}/download`, {
+      method: "POST",
+    });
+    refreshEmbeddingModels();
+  }
+
   async function refreshMachines() {
     const result = await api<SetupMachinesResponse>("/api/setup/machines");
     setMachineRegistry(result);
@@ -292,9 +311,11 @@ export default function SetupRoute() {
       connection={connection}
       estimate={preview ? estimateFromPreview(preview) : null}
       progress={progress}
+      embeddingModels={embeddingModels ?? []}
       onPreview={previewBuild}
       onStartBuild={startBuild}
       onCancelBuild={cancelBuild}
+      onDownloadEmbeddingModel={downloadEmbeddingModel}
       onRefreshMachines={refreshMachines}
       onOpenInstructions={() =>
         window.open(

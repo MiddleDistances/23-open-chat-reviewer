@@ -2,7 +2,7 @@ import "@testing-library/jest-dom/vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SetupConnection } from "./ConnectionGuide";
-import SetupPage, { type SetupEstimate, type SetupMachine } from "./SetupPage";
+import SetupPage, { type EmbeddingModelStatus, type SetupEstimate, type SetupMachine } from "./SetupPage";
 
 afterEach(() => cleanup());
 
@@ -48,7 +48,33 @@ const connection: SetupConnection = {
   warnings: [],
 };
 
+const missingEmbeddingModel: EmbeddingModelStatus = {
+  id: "qwen3-embedding-0.6b",
+  label: "Balanced local (recommended)",
+  description: "Qwen3 0.6B at 512 dimensions; private, multilingual semantic search.",
+  model_name: "Qwen/Qwen3-Embedding-0.6B",
+  revision: "pinned-revision",
+  dimensions: 512,
+  source_url: "https://huggingface.co/Qwen/Qwen3-Embedding-0.6B",
+  status: "not_downloaded",
+  message: "Not downloaded on this machine",
+};
+
 describe("archive setup page", () => {
+  it("defaults to seven days and offers only the intended history presets", () => {
+    render(<SetupPage />);
+
+    expect(screen.getByRole("button", { name: "Last 7 days" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Last 30 days" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Last 90 days" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "All available" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Last year" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "All available" }));
+    expect(screen.getByLabelText("History start date")).toHaveValue("");
+    expect(screen.getByLabelText("History end date")).toHaveValue("");
+  });
+
   it("explains the machine, scope, and separate reasoning policies", () => {
     render(<SetupPage machines={[machine]} estimate={estimate} connection={connection} />);
 
@@ -80,6 +106,26 @@ describe("archive setup page", () => {
       includeReasoningInProjection: true,
     });
     expect(screen.getByRole("checkbox", { name: /preserve encrypted raw reasoning/i })).not.toBeChecked();
+  });
+
+  it("offers a pinned Hugging Face download when the embedding model is not local", async () => {
+    const onDownload = vi.fn().mockResolvedValue(undefined);
+    const onStartBuild = vi.fn();
+    render(
+      <SetupPage
+        embeddingModels={[missingEmbeddingModel]}
+        onDownloadEmbeddingModel={onDownload}
+        onStartBuild={onStartBuild}
+      />,
+    );
+
+    expect(screen.getByLabelText("Embedding model preset")).toHaveValue("qwen3-embedding-0.6b");
+    expect(screen.getByText("Download required")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Download model first" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Download from Hugging Face" }));
+
+    await waitFor(() => expect(onDownload).toHaveBeenCalledWith("qwen3-embedding-0.6b"));
+    expect(screen.getByRole("status")).toHaveTextContent(/model download started/i);
   });
 
   it("passes the selected range to a preview callback and renders the returned estimate", async () => {

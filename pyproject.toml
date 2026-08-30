@@ -34,6 +34,7 @@ Issues = "https://github.com/MiddleDistances/23-open-chat-reviewer/issues"
 [project.optional-dependencies]
 semantic = [
   "hdbscan>=0.8.40",
+  "huggingface-hub>=0.34",
   "llvmlite>=0.44",
   "numba>=0.61",
   "numpy>=2.0",

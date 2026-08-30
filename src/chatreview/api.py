@@ -16,6 +16,13 @@ from pydantic import BaseModel, Field
 from chatreview import __version__
 from chatreview.config import Settings
 from chatreview.db import Row, Session, database, migrate
+from chatreview.embedding_models import (
+    DEFAULT_EMBEDDING_PRESET,
+    EmbeddingModelDependencyMissing,
+    EmbeddingModelDownloadActive,
+    EmbeddingModelManager,
+    UnknownEmbeddingPreset,
+)
 from chatreview.episodes import episode_stats, get_episode, list_episodes
 from chatreview.exporter import collect_evidence, render_evidence
 from chatreview.registry import (
@@ -160,6 +167,7 @@ class SetupPreviewInput(BaseModel):
     preserve_encrypted_reasoning: bool = True
     include_readable_reasoning_in_search: bool = False
     include_reasoning_in_projection: bool = False
+    embedding_preset: Literal["qwen3-embedding-0.6b"] = DEFAULT_EMBEDDING_PRESET
 
 
 class SummaryAgentInput(BaseModel):
@@ -184,6 +192,7 @@ def create_app(settings: Settings) -> FastAPI:
     setup = SetupPlanner(settings)
     setup_builds = SetupBuildManager(settings)
     summary_runs = SummaryRunManager(settings)
+    embedding_models = EmbeddingModelManager(settings.data_dir)
 
     def public_build_status() -> dict[str, Any]:
         status = setup_builds.status().to_dict()
@@ -271,6 +280,7 @@ def create_app(settings: Settings) -> FastAPI:
                         payload.include_readable_reasoning_in_search
                     ),
                     include_reasoning_in_projection=payload.include_reasoning_in_projection,
+                    embedding_preset=payload.embedding_preset,
                     run_semantic_refresh=True,
                 )
             )
@@ -284,6 +294,21 @@ def create_app(settings: Settings) -> FastAPI:
     def cancel_setup_build() -> dict[str, Any]:
         setup_builds.cancel()
         return public_build_status()
+
+    @app.get("/api/setup/embedding-models")
+    def setup_embedding_models() -> list[dict[str, Any]]:
+        return embedding_models.catalog()
+
+    @app.post("/api/setup/embedding-models/{preset_id}/download", status_code=202)
+    def download_setup_embedding_model(preset_id: str) -> dict[str, Any]:
+        try:
+            return embedding_models.start(preset_id)
+        except UnknownEmbeddingPreset as exc:
+            raise HTTPException(404, str(exc)) from exc
+        except EmbeddingModelDownloadActive as exc:
+            raise HTTPException(409, str(exc)) from exc
+        except EmbeddingModelDependencyMissing as exc:
+            raise HTTPException(503, str(exc)) from exc
 
     @app.get("/api/summary-agent")
     def summary_agent_status() -> dict[str, Any]:

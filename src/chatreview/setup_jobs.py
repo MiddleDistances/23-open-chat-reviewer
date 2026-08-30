@@ -35,6 +35,12 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any, Literal, Protocol, TextIO, cast
 
+from chatreview.embedding_models import (
+    DEFAULT_EMBEDDING_PRESET,
+    EmbeddingModelError,
+    embedding_preset,
+)
+
 ProviderName = Literal["codex", "claude", "gemini", "git"]
 BuildPhase = Literal["sync", "refresh", "semantic"]
 BuildState = Literal[
@@ -133,6 +139,7 @@ class SetupBuildPlan:
     preserve_encrypted_reasoning: bool = True
     include_readable_reasoning_in_search: bool = False
     include_reasoning_in_projection: bool = False
+    embedding_preset: str = DEFAULT_EMBEDDING_PRESET
     run_semantic_refresh: bool = True
 
     def __post_init__(self) -> None:
@@ -173,6 +180,10 @@ class SetupBuildPlan:
             "include_reasoning_in_projection",
             bool(self.include_reasoning_in_projection),
         )
+        try:
+            embedding_preset(self.embedding_preset)
+        except EmbeddingModelError as exc:
+            raise InvalidBuildPlan(str(exc)) from exc
         object.__setattr__(self, "run_semantic_refresh", bool(self.run_semantic_refresh))
 
     @classmethod
@@ -203,6 +214,10 @@ class SetupBuildPlan:
             "run_semantic_refresh",
             value.get("runSemanticRefresh", value.get("includeSemantic", True)),
         )
+        selected_embedding = value.get(
+            "embedding_preset",
+            value.get("embeddingPreset", DEFAULT_EMBEDDING_PRESET),
+        )
         return cls(
             providers=tuple(providers) if not isinstance(providers, str) else (providers,),
             include_git=bool(include_git),
@@ -211,6 +226,7 @@ class SetupBuildPlan:
             preserve_encrypted_reasoning=bool(preserve),
             include_readable_reasoning_in_search=bool(include_search_reasoning),
             include_reasoning_in_projection=bool(include_reasoning),
+            embedding_preset=str(selected_embedding),
             run_semantic_refresh=bool(run_semantic),
         )
 
@@ -225,6 +241,7 @@ class SetupBuildPlan:
             "preserve_encrypted_reasoning": self.preserve_encrypted_reasoning,
             "include_readable_reasoning_in_search": self.include_readable_reasoning_in_search,
             "include_reasoning_in_projection": self.include_reasoning_in_projection,
+            "embedding_preset": self.embedding_preset,
             "run_semantic_refresh": self.run_semantic_refresh,
         }
 
@@ -281,7 +298,18 @@ def build_commands(
     commands = [BuildCommand("sync", tuple(sync_argv))]
     commands.append(BuildCommand("refresh", (str(cli), "refresh")))
     if selected.run_semantic_refresh:
-        semantic_argv = [str(cli), "semantic", "refresh"]
+        model = embedding_preset(selected.embedding_preset)
+        semantic_argv = [
+            str(cli),
+            "semantic",
+            "refresh",
+            "--model",
+            model.model_name,
+            "--model-revision",
+            model.revision,
+            "--dimensions",
+            str(model.dimensions),
+        ]
         semantic_argv.append(
             SEMANTIC_REASONING_OPTION
             if selected.include_reasoning_in_projection

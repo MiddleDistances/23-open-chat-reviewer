@@ -5,6 +5,7 @@ import {
   ChevronRight,
   CloudCog,
   Database,
+  Download,
   HardDrive,
   Info,
   LoaderCircle,
@@ -45,6 +46,23 @@ export interface SetupConfig {
   includeReadableReasoningInSearch: boolean;
   /** Add readable reasoning text to the semantic/vector projection. */
   includeReasoningInProjection: boolean;
+  /** Fixed server-reviewed embedding configuration used for the projection. */
+  embeddingPreset: string;
+}
+
+export type EmbeddingModelState = "ready" | "not_downloaded" | "queued" | "downloading" | "failed" | "interrupted" | "unavailable";
+
+export interface EmbeddingModelStatus {
+  id: string;
+  label: string;
+  description: string;
+  model_name: string;
+  revision: string;
+  dimensions: number;
+  source_url: string;
+  status: EmbeddingModelState;
+  message: string;
+  error?: string | null;
 }
 
 export interface SetupSourceRoot {
@@ -117,12 +135,14 @@ export interface SetupPageProps {
   connection?: SetupConnection | null;
   estimate?: SetupEstimate | null;
   progress?: SetupProgress | null;
+  embeddingModels?: EmbeddingModelStatus[];
   /** Called whenever a form value changes, so the host can persist a draft. */
   onChange?: (config: SetupConfig) => void;
   /** May return an estimate so a host can remain endpoint-agnostic. */
   onPreview?: (config: SetupConfig) => SetupEstimate | void | Promise<SetupEstimate | void>;
   onStartBuild?: (config: SetupConfig) => void | Promise<void>;
   onCancelBuild?: () => void | Promise<void>;
+  onDownloadEmbeddingModel?: (presetId: string) => void | Promise<void>;
   /** Re-read machines registered in the shared archive; this is never a network scan. */
   onRefreshMachines?: () => string | void | Promise<string | void>;
   onSelectMachine?: (machineId: string) => void;
@@ -134,14 +154,14 @@ export interface SetupPageProps {
 }
 
 export const DEFAULT_SETUP_CONFIG: SetupConfig = {
-  historyStart: "",
-  historyEnd: "",
+  ...quickRangePatch("7d"),
   providers: ["codex", "claude", "gemini"],
   includeGitMetadata: true,
   // Exact evidence is retained by default; the two derived search controls are opt-in.
   preserveEncryptedReasoning: true,
   includeReadableReasoningInSearch: false,
   includeReasoningInProjection: false,
+  embeddingPreset: "qwen3-embedding-0.6b",
 };
 
 export const SETUP_ACTION_IDS = {
@@ -152,9 +172,10 @@ export const SETUP_ACTION_IDS = {
   previewBuild: "setup.build.preview",
   startBuild: "setup.build.start",
   cancelBuild: "setup.build.cancel",
+  downloadEmbeddingModel: "setup.embedding.download",
 } as const;
 
-type SetupAction = "preview" | "start" | "cancel" | "refresh-machines" | "instructions";
+type SetupAction = "preview" | "start" | "cancel" | "refresh-machines" | "instructions" | "download-model";
 
 interface ActionFeedback {
   actionId: string;
@@ -169,10 +190,10 @@ const PROVIDERS: Array<{ value: SetupProvider; label: string; description: strin
 ];
 
 const QUICK_RANGES = [
-  { label: "All available", value: "all" },
+  { label: "Last 7 days", value: "7d" },
   { label: "Last 30 days", value: "30d" },
   { label: "Last 90 days", value: "90d" },
-  { label: "Last year", value: "1y" },
+  { label: "All available", value: "all" },
 ] as const;
 
 const STEP_DETAILS: Array<{ id: SetupStep; number: string; label: string; description: string; icon: typeof Monitor }> = [
@@ -188,10 +209,12 @@ export default function SetupPage({
   connection = null,
   estimate = null,
   progress = null,
+  embeddingModels = [],
   onChange,
   onPreview,
   onStartBuild,
   onCancelBuild,
+  onDownloadEmbeddingModel,
   onRefreshMachines,
   onSelectMachine,
   onOpenInstructions,
@@ -199,7 +222,11 @@ export default function SetupPage({
   onSelectStep,
   summaryAgent,
 }: SetupPageProps) {
-  const [config, setConfig] = useState<SetupConfig>(() => ({ ...DEFAULT_SETUP_CONFIG, ...initialConfig }));
+  const [config, setConfig] = useState<SetupConfig>(() => ({
+    ...DEFAULT_SETUP_CONFIG,
+    ...quickRangePatch("7d"),
+    ...initialConfig,
+  }));
   const [activeStep, setActiveStep] = useState<SetupStep>("machines");
   const [previewEstimate, setPreviewEstimate] = useState<SetupEstimate | null>(null);
   const [action, setAction] = useState<SetupAction | null>(null);
@@ -207,6 +234,9 @@ export default function SetupPage({
   const [showMachineSetup, setShowMachineSetup] = useState(false);
 
   const displayedEstimate = previewEstimate ?? estimate;
+  const selectedEmbeddingModel = embeddingModels.find((model) => model.id === config.embeddingPreset) ?? embeddingModels[0];
+  const embeddingDownloadActive = selectedEmbeddingModel?.status === "queued" || selectedEmbeddingModel?.status === "downloading";
+  const embeddingBlocked = Boolean(selectedEmbeddingModel && selectedEmbeddingModel.status !== "ready");
   const isRunning = Boolean(
     progress &&
       ["queued", "scanning", "syncing", "deriving", "refreshing", "embedding", "cancelling"].includes(
@@ -500,6 +530,53 @@ export default function SetupPage({
             />
           </fieldset>
           <div className="setup-policy-note"><ShieldCheck size={15} aria-hidden="true" /><span>Encrypted payloads are not readable search text. Excluding them from the projection keeps opaque or repetitive traces out of semantic neighborhoods.</span></div>
+          {embeddingModels.length > 0 && (
+            <div className="setup-embedding-model" aria-label="Embedding model setup">
+              <div className="setup-embedding-copy">
+                <Sparkles size={18} aria-hidden="true" />
+                <div>
+                  <strong>Embedding model</strong>
+                  <span>The model runs locally. Chat text is not sent to Hugging Face.</span>
+                </div>
+              </div>
+              <label>
+                <span className="sr-only">Embedding model preset</span>
+                <select aria-label="Embedding model preset" value={config.embeddingPreset} onChange={(event) => updateConfig({ embeddingPreset: event.target.value })}>
+                  {embeddingModels.map((model) => <option key={model.id} value={model.id}>{model.label}</option>)}
+                </select>
+              </label>
+              {selectedEmbeddingModel && (
+                <div className="setup-embedding-status">
+                  <div>
+                    <strong>{selectedEmbeddingModel.model_name}</strong>
+                    <small>{selectedEmbeddingModel.description} {selectedEmbeddingModel.dimensions} dimensions.</small>
+                    <span className={`freshness freshness-${selectedEmbeddingModel.status === "ready" ? "fresh" : "stale"}`}>{embeddingModelStatusLabel(selectedEmbeddingModel.status)}</span>
+                    <small role={selectedEmbeddingModel.status === "failed" ? "alert" : undefined}>{selectedEmbeddingModel.error || selectedEmbeddingModel.message}</small>
+                  </div>
+                  {selectedEmbeddingModel.status !== "ready" && (
+                    <button
+                      className="button"
+                      id="setup-download-embedding-model"
+                      data-action-id={SETUP_ACTION_IDS.downloadEmbeddingModel}
+                      type="button"
+                      onClick={() => void runAction(
+                        "download-model",
+                        SETUP_ACTION_IDS.downloadEmbeddingModel,
+                        onDownloadEmbeddingModel ? () => onDownloadEmbeddingModel(selectedEmbeddingModel.id) : undefined,
+                        "Starting the pinned Hugging Face download…",
+                        "Model download started. You can leave this page while it completes.",
+                      )}
+                      disabled={!onDownloadEmbeddingModel || embeddingDownloadActive || selectedEmbeddingModel.status === "unavailable"}
+                    >
+                      {embeddingDownloadActive ? <LoaderCircle className="setup-spin" size={15} aria-hidden="true" /> : <Download size={15} aria-hidden="true" />}
+                      {embeddingDownloadActive ? "Downloading…" : "Download from Hugging Face"}
+                    </button>
+                  )}
+                  <a href={selectedEmbeddingModel.source_url} target="_blank" rel="noreferrer">View model card</a>
+                </div>
+              )}
+            </div>
+          )}
         </section>
       </div>
 
@@ -519,8 +596,8 @@ export default function SetupPage({
               onStartBuild ? () => onStartBuild(config) : undefined,
               "Starting the archive build…",
               "Archive build started. Live progress is shown below.",
-            )} disabled={!onStartBuild || isRunning || config.providers.length === 0}>
-              <Play size={15} aria-hidden="true" /> {isRunning ? "Build in progress" : "Start archive build"}
+            )} disabled={!onStartBuild || isRunning || config.providers.length === 0 || embeddingBlocked}>
+              <Play size={15} aria-hidden="true" /> {isRunning ? "Build in progress" : embeddingBlocked ? "Download model first" : "Start archive build"}
             </button>
           </div>
         </div>
@@ -616,24 +693,21 @@ function scopeLabel(config: SetupConfig): string {
 
 function rangeSelected(value: (typeof QUICK_RANGES)[number]["value"], config: SetupConfig): boolean {
   if (value === "all") return !config.historyStart && !config.historyEnd;
-  if (!config.historyEnd || config.historyEnd !== todayInputValue()) return false;
-  const expectedStart = new Date();
-  if (value === "30d") expectedStart.setDate(expectedStart.getDate() - 30);
-  if (value === "90d") expectedStart.setDate(expectedStart.getDate() - 90);
-  if (value === "1y") expectedStart.setFullYear(expectedStart.getFullYear() - 1);
-  return config.historyStart === toInputDate(expectedStart);
+  const expected = quickRangePatch(value);
+  return config.historyStart === expected.historyStart && config.historyEnd === expected.historyEnd;
 }
 
 function applyQuickRange(value: (typeof QUICK_RANGES)[number]["value"], update: (patch: Partial<SetupConfig>) => void) {
-  if (value === "all") {
-    update({ historyStart: "", historyEnd: "" });
-    return;
-  }
+  update(quickRangePatch(value));
+}
+
+function quickRangePatch(value: (typeof QUICK_RANGES)[number]["value"]): Pick<SetupConfig, "historyStart" | "historyEnd"> {
+  if (value === "all") return { historyStart: "", historyEnd: "" };
   const start = new Date();
+  if (value === "7d") start.setDate(start.getDate() - 7);
   if (value === "30d") start.setDate(start.getDate() - 30);
   if (value === "90d") start.setDate(start.getDate() - 90);
-  if (value === "1y") start.setFullYear(start.getFullYear() - 1);
-  update({ historyStart: toInputDate(start), historyEnd: todayInputValue() });
+  return { historyStart: toInputDate(start), historyEnd: todayInputValue() };
 }
 
 function updateProviders(provider: SetupProvider, included: boolean, config: SetupConfig, update: (patch: Partial<SetupConfig>) => void) {
@@ -650,6 +724,16 @@ function toInputDate(value: Date): string {
   const month = String(value.getMonth() + 1).padStart(2, "0");
   const day = String(value.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
+}
+
+function embeddingModelStatusLabel(status: EmbeddingModelState): string {
+  if (status === "ready") return "Ready on this machine";
+  if (status === "not_downloaded") return "Download required";
+  if (status === "queued") return "Download queued";
+  if (status === "downloading") return "Downloading";
+  if (status === "failed") return "Download failed";
+  if (status === "interrupted") return "Download interrupted";
+  return "Semantic dependencies required";
 }
 
 function clamp(value: number, minimum: number, maximum: number): number {
