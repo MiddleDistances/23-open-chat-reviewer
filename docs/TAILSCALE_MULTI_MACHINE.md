@@ -111,6 +111,12 @@ Open `http://<central-machine-name>:8765` from another permitted tailnet device.
 has no built-in authentication; the Tailscale grant is the access boundary. Never bind
 either port to `0.0.0.0` or forward it from a public router.
 
+The landing/setup screen on the central node is the operational front door. It should
+show the central node's machine identity, database/web/worker health, discovered source
+coverage, and the last completed raw/derived runs. Use it to choose the semantic date
+scope and the independent reasoning controls (preserve encrypted raw, search readable
+reasoning, embed readable reasoning) before starting an expensive semantic build.
+
 ## 3. Create one database login per writer
 
 On the central node, after migrations are current:
@@ -165,6 +171,13 @@ Review and change `CHATREVIEW_CODEX_ROOT`, `CHATREVIEW_CLAUDE_ROOT`,
 sync. Keep its generated `CHATREVIEW_MACHINE_ID` for the lifetime of that archive; do not
 copy one writer's identity to another computer.
 
+The writer's setup is local to that computer. Select its source roots and archive history
+scope there; the central database will show this machine as a separate contributor. A
+writer does not need a copy of another machine's chat files, and a new machine will not
+be included merely because it joins the tailnet. The first-run preview should show
+provider/file/byte counts and the effective earliest/latest source timestamps before
+sync begins.
+
 For a Linux writer, install the three-hour timer with randomized jitter:
 
 ```bash
@@ -186,6 +199,11 @@ the web app, or `worker run`. Schema changes and derived refreshes belong to the
 node. Stagger large first ingestions; normal incremental runs are resumable and use
 machine-and-source-specific PostgreSQL advisory locks.
 
+Keep the writer's `.chatreview/archive.env` private. It contains the central database
+connection and the writer's machine identity. Do not commit it or copy it to another
+machine. If a writer is reinstalled, restore its own ID only after confirming that the
+local source roots represent the same computer; otherwise create a new writer identity.
+
 ## 5. Operate the central archive
 
 Run the central worker after writer syncs. Its global worker lock ensures one projection
@@ -198,6 +216,20 @@ uv run open-chat-reviewer status
 
 The workload calendar then unions overlapping chat and Git intervals across the resolved
 contributors and projects, while retaining each machine as source provenance.
+
+The central PostgreSQL database stores the combined archive, not a filesystem mirror.
+Chat raw payloads and canonical text are retained according to the configured retention
+policy; episodes, semantic windows, embeddings, clusters, workload snapshots, and
+summaries are derived layers. Git contributes repository/commit metadata, messages,
+parents, timestamps, changed paths/status, and provenance—not Git blobs, patches, or
+full checkout contents. Read [Setup, scope, and storage](SETUP_AND_STORAGE.md) before
+changing raw-reasoning retention or semantic inclusion policy.
+
+After writer syncs, check the central status page/command. A successful writer sync can
+still leave episodes, timesheets, semantic runs, or resume cards stale until the central
+worker or the deliberate semantic refresh completes. Semantic map date filters are
+display-only filters on an existing run; changing them does not rebuild the central
+database.
 
 Back up PostgreSQL with `pg_dump`, test restores, rotate writer credentials, and remove
 stale writer devices from the tailnet. Tailscale encrypts traffic between nodes; use

@@ -175,15 +175,20 @@ def _redact(value: JsonValue) -> tuple[JsonValue, int, int]:
         if _is_reasoning_record(value) and "encrypted_content" in value:
             encrypted_bytes = _content_bytes(value["encrypted_content"])
             result: dict[Any, Any] = {}
+            nested_records = 0
+            nested_bytes = 0
             for key, child in value.items():
                 if key == "encrypted_content":
                     result[key] = REDACTED_MARKER
                 else:
-                    result[key] = _clone(child)
+                    transformed, child_records, child_bytes = _redact(child)
+                    result[key] = transformed
+                    nested_records += child_records
+                    nested_bytes += child_bytes
             result["encrypted_content_sha256"] = hashlib.sha256(encrypted_bytes).hexdigest()
             result["encrypted_content_byte_count"] = len(encrypted_bytes)
             result["encrypted_content_redacted"] = True
-            return result, 1, len(encrypted_bytes)
+            return result, 1 + nested_records, len(encrypted_bytes) + nested_bytes
 
         result = {}
         records = 0

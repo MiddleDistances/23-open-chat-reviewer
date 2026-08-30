@@ -59,6 +59,12 @@ any root with the corresponding `CHATREVIEW_*_ROOT` variable. Source roots are i
 only; Open Chat Reviewer writes to PostgreSQL and the Git-ignored `.chatreview/` runtime
 directory.
 
+For a first installation, read [Setup, scope, and storage](docs/SETUP_AND_STORAGE.md)
+before syncing. It explains the central/writer choice, per-machine history scope,
+reasoning retention/search/embedding controls, progress states, and exactly what Git
+evidence is stored. A second computer does not see the first computer's local archive
+until it is configured as a writer for the same central PostgreSQL database.
+
 ## Everyday commands
 
 ```bash
@@ -110,6 +116,7 @@ boundaries with `CHATREVIEW_TIMEZONE`, for example `Australia/Perth`.
 ## Architecture and operations
 
 - [Architecture](docs/ARCHITECTURE.md)
+- [Setup, scope, and storage](docs/SETUP_AND_STORAGE.md)
 - [Source adapters](docs/SOURCE_ADAPTERS.md)
 - [Sync and worker operations](docs/SYNC_OPERATIONS.md)
 - [Tailscale central archive and remote writers](docs/TAILSCALE_MULTI_MACHINE.md)

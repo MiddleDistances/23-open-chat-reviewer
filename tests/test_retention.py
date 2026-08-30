@@ -108,6 +108,21 @@ def test_redact_handles_nested_records_and_does_not_touch_other_types() -> None:
     assert transformed["events"][2]["encrypted_content"] == "leave this field alone"
 
 
+def test_redact_recurses_through_a_reasoning_record_without_redacting_its_cipher_field() -> None:
+    nested_secret = "nested reasoning payload"
+    value = {
+        "type": "reasoning",
+        "encrypted_content": "outer payload",
+        "metadata": {"type": "reasoning", "encrypted_content": nested_secret},
+    }
+
+    result = RawRetentionPolicy("redact").apply(value)
+
+    assert result.redacted_records == 2
+    assert result.value["metadata"]["encrypted_content"] == REDACTED_MARKER
+    assert result.value["encrypted_content"] == REDACTED_MARKER
+
+
 def test_redact_hashes_non_string_json_values_deterministically() -> None:
     value = {"type": "reasoning", "encrypted_content": {"b": 2, "a": 1}, "summary": []}
     expected = json.dumps({"b": 2, "a": 1}, sort_keys=True, separators=(",", ":")).encode()
