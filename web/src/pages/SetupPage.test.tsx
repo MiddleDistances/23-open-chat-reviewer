@@ -7,8 +7,8 @@ import SetupPage, { type SetupEstimate, type SetupMachine } from "./SetupPage";
 afterEach(() => cleanup());
 
 const machine: SetupMachine = {
-  id: "ubuntu-fast",
-  name: "Ubuntu fast",
+  id: "linux-box",
+  name: "Linux box",
   status: "current",
   platform: "Linux",
   sourceRoots: [
@@ -32,17 +32,17 @@ const estimate: SetupEstimate = {
 };
 
 const connection: SetupConnection = {
-  centralMachine: { id: "ubuntu-fast", name: "Ubuntu fast", hostname: "ubuntu-fast" },
-  web: { url: "http://ubuntu-fast.example.ts.net:8766", host: "0.0.0.0", port: 8766 },
+  centralMachine: { id: "linux-box", name: "Linux box", hostname: "linux-box" },
+  web: { url: "http://linux-box.example.ts.net:8766", host: "0.0.0.0", port: 8766 },
   database: {
     localEndpoint: "127.0.0.1:54329",
-    writerEndpoint: "ubuntu-fast.example.ts.net:54329",
+    writerEndpoint: "linux-box.example.ts.net:54329",
     remoteReady: true,
   },
   tailscale: {
     connected: true,
     ipv4: "100.64.0.1",
-    dnsName: "ubuntu-fast.example.ts.net",
+    dnsName: "linux-box.example.ts.net",
   },
   networkScan: false,
   warnings: [],
@@ -53,14 +53,14 @@ describe("archive setup page", () => {
     render(<SetupPage machines={[machine]} estimate={estimate} connection={connection} />);
 
     expect(screen.getByRole("heading", { name: /make every machine part/i })).toBeInTheDocument();
-    expect(screen.getAllByText("Ubuntu fast")).toHaveLength(3);
+    expect(screen.getAllByText("Linux box")).toHaveLength(2);
     expect(screen.getByText("1.9 MiB")).toBeInTheDocument();
     expect(screen.getByRole("checkbox", { name: /preserve encrypted raw reasoning/i })).toBeChecked();
     expect(screen.getByRole("checkbox", { name: /include readable reasoning in text search/i })).not.toBeChecked();
     expect(screen.getByRole("checkbox", { name: /include reasoning in the vector projection/i })).not.toBeChecked();
     expect(screen.getByText(/repositories, commits, paths—not file contents/i)).toBeInTheDocument();
     expect(screen.getAllByRole("img", { name: /multi-machine architecture/i })).toHaveLength(2);
-    expect(screen.getAllByText("ubuntu-fast.example.ts.net:54329")).toHaveLength(3);
+    expect(screen.getByText("linux-box.example.ts.net:54329")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Setup guide" })).toHaveAttribute("data-action-id", "setup.guide.open");
     expect(screen.getByRole("button", { name: "Preview build" })).toHaveAttribute("id", "setup-preview-build");
   });
@@ -121,9 +121,9 @@ describe("archive setup page", () => {
     const onCancelBuild = vi.fn();
     render(<SetupPage machines={[machine]} onSelectMachine={onSelectMachine} onCancelBuild={onCancelBuild} progress={{ status: "embedding", phase: "Embedding", completed: 3, total: 10, estimatedSecondsRemaining: 20 }} />);
 
-    fireEvent.click(screen.getByRole("button", { name: /ubuntu fast/i }));
-    expect(onSelectMachine).toHaveBeenCalledWith("ubuntu-fast");
-    expect(screen.getByRole("button", { name: /ubuntu fast/i })).toHaveAttribute(
+    fireEvent.click(screen.getByRole("button", { name: /linux box/i }));
+    expect(onSelectMachine).toHaveBeenCalledWith("linux-box");
+    expect(screen.getByRole("button", { name: /linux box/i })).toHaveAttribute(
       "data-action-id",
       "setup.machine.select",
     );

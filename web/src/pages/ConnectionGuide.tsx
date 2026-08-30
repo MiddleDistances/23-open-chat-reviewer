@@ -37,9 +37,6 @@ export function ConnectionOverview({
   connection: SetupConnection | null;
   machineCount: number;
 }) {
-  const centralName = connection?.centralMachine.name ?? "Central machine";
-  const databaseLabel = connection?.database.writerEndpoint ?? "Local-only database";
-
   return (
     <section className="panel setup-connection-overview" aria-labelledby="setup-connection-title">
       <div className="setup-connection-heading">
@@ -66,7 +63,7 @@ export function ConnectionOverview({
           >
             <title id="setup-architecture-title">Open Chat Reviewer multi-machine architecture</title>
             <desc id="setup-architecture-description">
-              Laptop and desktop writer agents sync local Codex, Claude, Gemini, and Git evidence
+              A Linux box and Raspberry Pi sync local Codex, Claude, Gemini, and Git evidence
               over Tailscale into PostgreSQL on the central machine. The web GUI reads the shared
               database and serves it to a trusted browser.
             </desc>
@@ -78,12 +75,12 @@ export function ConnectionOverview({
 
             <rect x="24" y="48" width="190" height="112" rx="12" className="setup-svg-node" />
             <text x="48" y="82" className="setup-svg-kicker">WRITER MACHINE</text>
-            <text x="48" y="112" className="setup-svg-title">Laptop</text>
+            <text x="48" y="112" className="setup-svg-title">Linux box</text>
             <text x="48" y="138" className="setup-svg-copy">Codex · Claude · Gemini · Git</text>
 
             <rect x="24" y="254" width="190" height="112" rx="12" className="setup-svg-node" />
             <text x="48" y="288" className="setup-svg-kicker">WRITER MACHINE</text>
-            <text x="48" y="318" className="setup-svg-title">Desktop</text>
+            <text x="48" y="318" className="setup-svg-title">Raspberry Pi</text>
             <text x="48" y="344" className="setup-svg-copy">Local read-only sources</text>
 
             <path d="M214 104 C270 104 270 164 318 180" className="setup-svg-flow" markerEnd="url(#setup-arrow)" />
@@ -92,7 +89,7 @@ export function ConnectionOverview({
 
             <rect x="318" y="92" width="222" height="236" rx="16" className="setup-svg-central" />
             <text x="346" y="128" className="setup-svg-kicker">CENTRAL MACHINE</text>
-            <text x="346" y="160" className="setup-svg-title">{truncateLabel(centralName, 22)}</text>
+            <text x="346" y="160" className="setup-svg-title">Mac mini</text>
             <rect x="346" y="184" width="166" height="58" rx="8" className="setup-svg-database" />
             <text x="368" y="211" className="setup-svg-title-small">PostgreSQL</text>
             <text x="368" y="231" className="setup-svg-copy">one shared archive</text>
@@ -105,7 +102,7 @@ export function ConnectionOverview({
             <text x="632" y="214" className="setup-svg-title">Browser</text>
             <text x="632" y="240" className="setup-svg-copy">Search · review</text>
 
-            <text x="318" y="375" className="setup-svg-endpoint">{truncateLabel(databaseLabel, 45)}</text>
+            <text x="318" y="375" className="setup-svg-endpoint">Private Tailscale database</text>
           </svg>
           <svg
             className="setup-architecture-mobile"
@@ -115,7 +112,7 @@ export function ConnectionOverview({
           >
             <title id="setup-mobile-architecture-title">Open Chat Reviewer multi-machine architecture</title>
             <desc id="setup-mobile-architecture-description">
-              Writer computers send local chat and Git evidence through Tailscale into PostgreSQL on the central machine. The central web GUI serves the combined archive to a trusted browser.
+              A Linux box and Raspberry Pi send local chat and Git evidence through Tailscale into PostgreSQL on a Mac mini. The central web GUI serves the combined archive to a trusted browser.
             </desc>
             <defs>
               <marker id="setup-mobile-arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
@@ -125,7 +122,7 @@ export function ConnectionOverview({
 
             <rect x="30" y="18" width="260" height="94" rx="12" className="setup-svg-node" />
             <text x="52" y="48" className="setup-svg-kicker">WRITER COMPUTERS</text>
-            <text x="52" y="76" className="setup-svg-title">Laptop · Desktop</text>
+            <text x="52" y="76" className="setup-svg-title">Linux box · Raspberry Pi</text>
             <text x="52" y="98" className="setup-svg-copy">Local Codex · Claude · Gemini · Git</text>
 
             <path d="M160 112 L160 158" className="setup-svg-flow" markerEnd="url(#setup-mobile-arrow)" />
@@ -133,7 +130,7 @@ export function ConnectionOverview({
 
             <rect x="30" y="166" width="260" height="218" rx="16" className="setup-svg-central" />
             <text x="52" y="198" className="setup-svg-kicker">CENTRAL MACHINE</text>
-            <text x="52" y="228" className="setup-svg-title">{truncateLabel(centralName, 22)}</text>
+            <text x="52" y="228" className="setup-svg-title">Mac mini</text>
             <rect x="52" y="248" width="216" height="58" rx="8" className="setup-svg-database" />
             <text x="70" y="273" className="setup-svg-title-small">PostgreSQL</text>
             <text x="70" y="294" className="setup-svg-copy">one shared archive</text>
@@ -144,7 +141,7 @@ export function ConnectionOverview({
             <rect x="30" y="438" width="260" height="86" rx="12" className="setup-svg-node" />
             <text x="52" y="468" className="setup-svg-kicker">TRUSTED BROWSER</text>
             <text x="52" y="498" className="setup-svg-title">Search · review · resume</text>
-            <text x="30" y="548" className="setup-svg-endpoint">{truncateLabel(databaseLabel, 42)}</text>
+            <text x="30" y="548" className="setup-svg-endpoint">Private Tailscale database</text>
           </svg>
           <figcaption>
             {machineCount} registered machine{machineCount === 1 ? "" : "s"}; no chat folders are mounted or copied between computers.
@@ -389,8 +386,4 @@ async function copyText(value: string): Promise<void> {
 function machineSlug(value: string): string {
   const normalized = value.toLowerCase().trim().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "");
   return normalized.slice(0, 31) || "my-laptop";
-}
-
-function truncateLabel(value: string, length: number): string {
-  return value.length <= length ? value : `${value.slice(0, length - 1)}…`;
 }
