@@ -16,7 +16,7 @@ make a useful workload calendar and draft timesheets. That was unexpectedly hand
 
 Then I wanted other agents to be able to search the same history: find an old discussion,
 recover documentation or references I knew I had seen, or review work that happened on
-another machine. A read-only public MCP interface is the next major feature.
+another machine. The included read-only MCP provides that recall without arbitrary SQL.
 
 Finally, I wanted summaries without forcing everyone to buy another API subscription.
 Open Chat Reviewer can use a local model or the Codex, Claude, or Gemini CLI login already
@@ -45,7 +45,7 @@ sends one bounded evidence packet to the selected summariser; it does not copy C
 
 ### Let agents look back
 
-The planned public MCP will let another agent search and cite this archive without giving
+The public MCP lets another agent search and cite this archive without giving
 it arbitrary SQL, filesystem access, or permission to rewrite the evidence.
 
 ## How it works
@@ -67,9 +67,7 @@ You need Python 3.12 or 3.13, [uv](https://docs.astral.sh/uv/), and Docker with 
 ```bash
 git clone https://github.com/MiddleDistances/23-open-chat-reviewer.git
 cd 23-open-chat-reviewer
-scripts/bootstrap.sh
-scripts/chatreview-sync.sh
-scripts/chatreview-web.sh
+scripts/install.sh
 ```
 
 Open the URL printed by `bootstrap.sh`. By default, Open Chat Reviewer looks for:
@@ -91,8 +89,7 @@ embedding model before starting a larger build.
    the new computer:
 
 ```bash
-uv sync
-uv run open-chat-reviewer writer install ~/Downloads/my-computer.env
+git clone https://github.com/MiddleDistances/23-open-chat-reviewer.git && cd 23-open-chat-reviewer && scripts/connect-computer.sh ~/Downloads/my-computer.env
 ```
 
 The installer checks the connection, previews local sources, performs the first resumable
@@ -108,13 +105,13 @@ sync, and installs the recurring sync schedule. The full beginner and security g
 - Local Qwen summaries or existing coding-agent CLI subscriptions
 - Guided multi-computer setup over Tailscale
 - Resumable sync with source hashes and machine attribution
+- Read-only MCP for agent recall
+- Safe backup, restore, update, and service removal scripts
 
 Still in progress:
 
-- A small, read-only public MCP for archive recall
 - Packaged installers that remove the Git/Python setup for non-technical users
-- Faster time-filtered semantic maps and clearer projection lifecycle controls
-- One-screen backup, restore, update, and uninstall guidance
+- Further semantic-map lifecycle and performance tuning for very large archives
 
 ## What is stored
 
@@ -155,6 +152,8 @@ uv run open-chat-reviewer timesheets export --format csv
 - [Architecture](docs/ARCHITECTURE.md)
 - [Sync and recovery](docs/SYNC_OPERATIONS.md)
 - [Summary model providers](docs/MODEL_PROVIDERS.md)
+- [Read-only MCP](docs/MCP.md)
+- [Backup and maintenance](docs/MAINTENANCE.md)
 - [Source adapters](docs/SOURCE_ADAPTERS.md)
 - [Deployment](docs/DEPLOYMENT.md)
 

@@ -4,15 +4,26 @@ set -Eeuo pipefail
 
 SCRIPT_PATH="${BASH_SOURCE[0]}"
 REPO_ROOT="$(cd -- "$(dirname -- "$SCRIPT_PATH")/.." && pwd -P)"
-LABEL="org.openchatreviewer.worker"
-TARGET="$HOME/Library/LaunchAgents/$LABEL.plist"
+WITH_WORKER=0
+if [[ "${1:-}" == "--with-worker" ]]; then
+  WITH_WORKER=1
+elif [[ -n "${1:-}" ]]; then
+  printf 'Usage: %s [--with-worker]\n' "$0" >&2
+  exit 64
+fi
 
 mkdir -p -- "$HOME/Library/LaunchAgents" "$REPO_ROOT/.chatreview/logs"
-sed "s|@REPO_ROOT@|$REPO_ROOT|g" \
-    "$REPO_ROOT/deploy/launchd/$LABEL.plist.in" > "$TARGET"
-
-launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || true
-launchctl bootstrap "gui/$(id -u)" "$TARGET"
-launchctl enable "gui/$(id -u)/$LABEL"
-launchctl kickstart -k "gui/$(id -u)/$LABEL"
-launchctl print "gui/$(id -u)/$LABEL"
+labels=(org.openchatreviewer.web)
+if [[ "$WITH_WORKER" == "1" ]]; then
+  labels+=(org.openchatreviewer.worker)
+fi
+for label in "${labels[@]}"; do
+  target="$HOME/Library/LaunchAgents/$label.plist"
+  sed "s|@REPO_ROOT@|$REPO_ROOT|g" \
+      "$REPO_ROOT/deploy/launchd/$label.plist.in" > "$target"
+  launchctl bootout "gui/$(id -u)/$label" 2>/dev/null || true
+  launchctl bootstrap "gui/$(id -u)" "$target"
+  launchctl enable "gui/$(id -u)/$label"
+  launchctl kickstart -k "gui/$(id -u)/$label"
+  launchctl print "gui/$(id -u)/$label"
+done

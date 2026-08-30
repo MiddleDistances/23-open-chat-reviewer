@@ -7,7 +7,7 @@ import tempfile
 from collections import Counter, defaultdict
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -1148,6 +1148,7 @@ def map_points(
     cluster_id: int | None = None,
     date_from: str | date | datetime | None = None,
     date_to: str | date | datetime | None = None,
+    recent_days: int | None = None,
     policy: SemanticPolicy | None = None,
     limit: int = 200_000,
 ) -> dict[str, Any]:
@@ -1167,7 +1168,16 @@ def map_points(
             profile_parameters,
         ).fetchone()
         if run is None:
-            return {"run": None, "points": [], "clusters": []}
+            return {
+                "run": None,
+                "total": 0,
+                "sample_stride": 1,
+                "points": [],
+                "clusters": [],
+                "bounds": None,
+                "date_from": None,
+                "date_to": None,
+            }
         run_id = int(run["id"])
     run_config_row = connection.execute(
         "SELECT config_json FROM semantic_runs WHERE id=?", (run_id,)
@@ -1178,6 +1188,24 @@ def map_points(
         )
     )
     preview_policy = policy or run_policy
+    if recent_days is not None and date_from is None and date_to is None:
+        if recent_days < 1:
+            raise ValueError("recent_days must be positive")
+        anchor = connection.execute(
+            """
+            SELECT MAX(COALESCE(last_event.timestamp, first_event.timestamp)) AS latest
+            FROM semantic_windows w
+            JOIN events first_event ON first_event.id=w.first_event_id
+            JOIN events last_event ON last_event.id=w.last_event_id
+            WHERE w.run_id=? AND w.projection_x IS NOT NULL
+            """,
+            (run_id,),
+        ).fetchone()
+        latest = anchor["latest"] if anchor else None
+        if latest is not None:
+            latest_date = latest.date() if isinstance(latest, datetime) else latest
+            date_to = latest_date
+            date_from = latest_date - timedelta(days=recent_days - 1)
     clauses = ["w.run_id=?", "w.projection_x IS NOT NULL"]
     parameters: list[Any] = [run_id]
     if provider:
@@ -1190,24 +1218,10 @@ def map_points(
         clauses.append("w.cluster_id=?")
         parameters.append(cluster_id)
     if date_from is not None:
-        clauses.append(
-            "EXISTS ("
-            "SELECT 1 FROM events date_event "
-            "WHERE date_event.session_id=w.session_id "
-            "AND date_event.id BETWEEN w.first_event_id AND w.last_event_id "
-            "AND date_event.timestamp::date >= ?::date"
-            ")"
-        )
+        clauses.append("COALESCE(last_event.timestamp, first_event.timestamp)::date >= ?::date")
         parameters.append(_date_scope_value(date_from))
     if date_to is not None:
-        clauses.append(
-            "EXISTS ("
-            "SELECT 1 FROM events date_event "
-            "WHERE date_event.session_id=w.session_id "
-            "AND date_event.id BETWEEN w.first_event_id AND w.last_event_id "
-            "AND date_event.timestamp::date <= ?::date"
-            ")"
-        )
+        clauses.append("COALESCE(first_event.timestamp, last_event.timestamp)::date <= ?::date")
         parameters.append(_date_scope_value(date_to))
     total = int(
         connection.execute(
@@ -1216,6 +1230,8 @@ def map_points(
             FROM semantic_windows w
             JOIN sessions s ON s.id=w.session_id
             LEFT JOIN projects project ON project.id=s.project_id
+            JOIN events first_event ON first_event.id=w.first_event_id
+            JOIN events last_event ON last_event.id=w.last_event_id
             WHERE {" AND ".join(clauses)}
             """,
             parameters,
@@ -1235,6 +1251,8 @@ def map_points(
                    s.id AS session_id, s.provider, s.project,
                    COALESCE(semantic_preview.preview, substr(c.text, 1, 300)) AS preview,
                    COALESCE(first_event.timestamp, last_event.timestamp) AS timestamp,
+                   first_event.timestamp AS first_timestamp,
+                   last_event.timestamp AS last_timestamp,
                    w.first_event_id, w.last_event_id
             FROM semantic_windows w
             JOIN sessions s ON s.id=w.session_id
@@ -1285,12 +1303,34 @@ def map_points(
     if run_data is not None:
         run_data.pop("config_json")
         run_data["freshness"] = semantic_run_freshness(connection, {"config_json": run_row["config_json"]})
+    bounds_row = connection.execute(
+        """
+        SELECT MIN(projection_x) AS min_x, MAX(projection_x) AS max_x,
+               MIN(projection_y) AS min_y, MAX(projection_y) AS max_y
+        FROM semantic_windows
+        WHERE run_id=? AND projection_x IS NOT NULL AND projection_y IS NOT NULL
+        """,
+        (run_id,),
+    ).fetchone()
+    bounds = (
+        {
+            "min_x": float(bounds_row["min_x"]),
+            "max_x": float(bounds_row["max_x"]),
+            "min_y": float(bounds_row["min_y"]),
+            "max_y": float(bounds_row["max_y"]),
+        }
+        if bounds_row and bounds_row["min_x"] is not None
+        else None
+    )
     return {
         "run": run_data,
         "total": total,
         "sample_stride": stride,
         "points": points,
         "clusters": clusters,
+        "bounds": bounds,
+        "date_from": _date_scope_value(date_from) if date_from is not None else None,
+        "date_to": _date_scope_value(date_to) if date_to is not None else None,
     }
 
 

@@ -47,9 +47,11 @@ afterEach(() => cleanup());
 
 describe("semantic map", () => {
   it("builds the date-aware API query", () => {
-    expect(mapQuery({ runId: "3", provider: "codex", clusterId: "2", dateFrom: "2026-08-01", dateTo: "2026-08-30" })).toContain("date_from=2026-08-01");
-    expect(mapQuery({ runId: "3", provider: "codex", clusterId: "2", dateFrom: "2026-08-01", dateTo: "2026-08-30" })).toContain("date_to=2026-08-30");
-    expect(mapQuery({ runId: "", provider: "", clusterId: "", dateFrom: "", dateTo: "" })).toContain("limit=200000");
+    const custom = { runId: "3", provider: "codex", clusterId: "2", timeRange: "custom" as const, dateFrom: "2026-08-01", dateTo: "2026-08-30" };
+    expect(mapQuery(custom)).toContain("date_from=2026-08-01");
+    expect(mapQuery(custom)).toContain("date_to=2026-08-30");
+    expect(mapQuery({ runId: "", provider: "", clusterId: "", timeRange: "30d", dateFrom: "", dateTo: "" })).toContain("recent_days=30");
+    expect(mapQuery({ runId: "", provider: "", clusterId: "", timeRange: "30d", dateFrom: "", dateTo: "" })).toContain("limit=20000");
   });
 
   it("uses the vectorized text in previews and never the headline", () => {
@@ -68,6 +70,8 @@ describe("semantic map", () => {
 
   it("shows date controls and an accessible vector preview on hover/focus", () => {
     render(<MemoryRouter><MapPage data={data} semanticRuns={[]} /></MemoryRouter>);
+    expect(screen.getByLabelText("Time range")).toHaveValue("30d");
+    fireEvent.change(screen.getByLabelText("Time range"), { target: { value: "custom" } });
     expect(screen.getByLabelText("Date from")).toHaveAttribute("type", "date");
     expect(screen.getByLabelText("Date to")).toHaveAttribute("type", "date");
 
@@ -87,6 +91,7 @@ describe("semantic map", () => {
   it("lets a date change notify the parent and reset the selected point", () => {
     const onFiltersChange = vi.fn();
     render(<MemoryRouter><MapPage data={data} semanticRuns={[]} onFiltersChange={onFiltersChange} /></MemoryRouter>);
+    fireEvent.change(screen.getByLabelText("Time range"), { target: { value: "custom" } });
     fireEvent.change(screen.getByLabelText("Date from"), { target: { value: "2026-08-24" } });
     expect(onFiltersChange).toHaveBeenCalledWith(expect.objectContaining({ dateFrom: "2026-08-24" }));
     expect(screen.getByText("1 windows")).toBeInTheDocument();

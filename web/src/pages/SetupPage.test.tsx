@@ -1,10 +1,11 @@
 import "@testing-library/jest-dom/vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SetupConnection } from "./ConnectionGuide";
 import SetupPage, { type EmbeddingModelStatus, type SetupEstimate, type SetupMachine } from "./SetupPage";
 
 afterEach(() => cleanup());
+beforeEach(() => window.localStorage.setItem("open-chat-reviewer.experience-mode", "advanced"));
 
 const machine: SetupMachine = {
   id: "linux-box",
@@ -61,6 +62,17 @@ const missingEmbeddingModel: EmbeddingModelStatus = {
 };
 
 describe("archive setup page", () => {
+  it("keeps specialist retention controls out of the basic three-step path", () => {
+    window.localStorage.setItem("open-chat-reviewer.experience-mode", "basic");
+    render(<SetupPage firstRun />);
+
+    expect(screen.getByRole("heading", { name: "Set up your chat archive" })).toBeInTheDocument();
+    expect(screen.getByText(/connect this computer, choose a date range, then build/i)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /storage & search/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("checkbox", { name: /preserve encrypted raw reasoning/i })).not.toBeInTheDocument();
+    expect(document.getElementById("setup-step-build")).toHaveTextContent("03Build");
+  });
+
   it("defaults to seven days and offers only the intended history presets", () => {
     render(<SetupPage />);
 
@@ -150,7 +162,7 @@ describe("archive setup page", () => {
     fireEvent.click(screen.getByRole("button", { name: "Add another machine" }));
     expect(screen.getByRole("heading", { name: /connect one other computer/i })).toBeInTheDocument();
     expect(screen.getByText(/performs the first resumable sync/i)).toBeInTheDocument();
-    expect(screen.getByText(/writer install ~\/Downloads\/my-laptop.env/i)).toBeInTheDocument();
+    expect(screen.getByText(/scripts\/connect-computer.sh ~\/Downloads\/my-laptop.env/i)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Check shared archive" }));
 

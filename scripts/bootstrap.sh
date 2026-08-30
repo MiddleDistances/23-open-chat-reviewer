@@ -45,4 +45,4 @@ else
 fi
 printf 'Bootstrap complete. Web URL after launch: http://%s:%s\n' \
     "$web_host" "${CHATREVIEW_WEB_PORT:-8765}"
-printf 'Run: scripts/chatreview-sync.sh && scripts/chatreview-web.sh\n'
+printf 'Start the web service, open Setup, and choose the history range before the first import.\n'

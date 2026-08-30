@@ -41,6 +41,9 @@ semantic = [
   "sentence-transformers>=5.0",
   "umap-learn>=0.5.9",
 ]
+mcp = [
+  "mcp>=1.12,<2",
+]
 dev = [
   "httpx>=0.28",
   "pytest>=8.4",
@@ -50,6 +53,7 @@ dev = [
 [project.scripts]
 open-chat-reviewer = "chatreview.cli:app"
 chatreview = "chatreview.cli:app"
+open-chat-reviewer-mcp = "chatreview.archive_mcp:main"
 
 [build-system]
 requires = ["uv_build>=0.8.0,<0.9"]

@@ -30,6 +30,7 @@ import {
   WriterSetupGuide,
   type SetupConnection,
 } from "./ConnectionGuide";
+import { useExperienceMode } from "../preferences";
 
 export type SetupProvider = "codex" | "claude" | "gemini";
 
@@ -151,6 +152,8 @@ export interface SetupPageProps {
   onSelectStep?: (step: SetupStep) => void;
   /** Optional machine-local summary-agent controls owned by the API route. */
   summaryAgent?: ReactNode;
+  /** Marks a new archive so the page can explain the shortest successful path. */
+  firstRun?: boolean;
 }
 
 export const DEFAULT_SETUP_CONFIG: SetupConfig = {
@@ -221,7 +224,10 @@ export default function SetupPage({
   onOpenWriterInstructions,
   onSelectStep,
   summaryAgent,
+  firstRun = false,
 }: SetupPageProps) {
+  const [experienceMode] = useExperienceMode();
+  const isAdvanced = experienceMode === "advanced";
   const [config, setConfig] = useState<SetupConfig>(() => ({
     ...DEFAULT_SETUP_CONFIG,
     ...quickRangePatch("7d"),
@@ -243,6 +249,9 @@ export default function SetupPage({
         progress.status,
       ),
   );
+  const visibleSteps = STEP_DETAILS
+    .filter((step) => isAdvanced || step.id !== "policy")
+    .map((step, index) => ({ ...step, number: String(index + 1).padStart(2, "0") }));
 
   function updateConfig(patch: Partial<SetupConfig>) {
     const next = { ...config, ...patch };
@@ -313,7 +322,7 @@ export default function SetupPage({
 
   return (
     <div className="setup-page">
-      <PageHeader eyebrow="Archive setup" title="Make every machine part of one evidence archive">
+      <PageHeader eyebrow="Archive setup" title={isAdvanced ? "Make every machine part of one evidence archive" : "Set up your chat archive"}>
         <button
           className="button"
           id="setup-open-guide"
@@ -334,12 +343,9 @@ export default function SetupPage({
 
       <section className="panel setup-hero" aria-labelledby="setup-hero-title">
         <div className="setup-hero-copy">
-          <span className="eyebrow">One deliberate build</span>
-          <h2 id="setup-hero-title">Decide what enters the archive before it gets indexed.</h2>
-          <p>
-            Source folders remain read-only. This setup chooses which machines and dates to scan,
-            then shows the storage impact before PostgreSQL and the optional vector projection are built.
-          </p>
+          <span className="eyebrow">{firstRun ? "Welcome" : "Three simple steps"}</span>
+          <h2 id="setup-hero-title">Connect this computer, choose a date range, then build.</h2>
+          <p>Your chat folders stay read-only. You can add other computers after this one is working.</p>
         </div>
         <div className="setup-hero-status" role="group" aria-label="Setup summary">
           <Badge tone={isRunning ? "partial" : progress?.status === "complete" ? "success" : "neutral"}>
@@ -355,7 +361,7 @@ export default function SetupPage({
       {summaryAgent}
 
       <nav className="setup-step-cards" aria-label="Archive setup steps">
-        {STEP_DETAILS.map(({ id, number, label, description, icon: Icon }) => (
+        {visibleSteps.map(({ id, number, label, description, icon: Icon }) => (
           <button
             className={`setup-step-card ${activeStep === id ? "active" : ""}`}
             id={`setup-step-${id}`}
@@ -498,7 +504,7 @@ export default function SetupPage({
           </fieldset>
         </section>
 
-        <section className="panel setup-section" id="setup-section-policy" aria-labelledby="setup-policy-title">
+        {isAdvanced ? <section className="panel setup-section" id="setup-section-policy" aria-labelledby="setup-policy-title">
           <SectionHeading step="03" eyebrow="Storage and retrieval" title="Choose what reasoning is used for" id="setup-policy-title">
             Raw evidence, lexical search, and vector projection are separate decisions. Changing a derived policy never rewrites the original chat archive.
           </SectionHeading>
@@ -530,59 +536,60 @@ export default function SetupPage({
             />
           </fieldset>
           <div className="setup-policy-note"><ShieldCheck size={15} aria-hidden="true" /><span>Encrypted payloads are not readable search text. Excluding them from the projection keeps opaque or repetitive traces out of semantic neighborhoods.</span></div>
-          {embeddingModels.length > 0 && (
-            <div className="setup-embedding-model" aria-label="Embedding model setup">
-              <div className="setup-embedding-copy">
-                <Sparkles size={18} aria-hidden="true" />
-                <div>
-                  <strong>Embedding model</strong>
-                  <span>The model runs locally. Chat text is not sent to Hugging Face.</span>
-                </div>
+        </section> : null}
+      </div>
+
+      {embeddingModels.length > 0 && (
+        <div className="panel setup-embedding-model" aria-label="Embedding model setup">
+          <div className="setup-embedding-copy">
+            <Sparkles size={18} aria-hidden="true" />
+            <div>
+              <strong>Local search model</strong>
+              <span>Used for the optional semantic map. Chat text never goes to Hugging Face.</span>
+            </div>
+          </div>
+          <label>
+            <span className="sr-only">Embedding model preset</span>
+            <select aria-label="Embedding model preset" value={config.embeddingPreset} onChange={(event) => updateConfig({ embeddingPreset: event.target.value })}>
+              {embeddingModels.map((model) => <option key={model.id} value={model.id}>{model.label}</option>)}
+            </select>
+          </label>
+          {selectedEmbeddingModel && (
+            <div className="setup-embedding-status">
+              <div>
+                <strong>{selectedEmbeddingModel.model_name}</strong>
+                <small>{selectedEmbeddingModel.description} {selectedEmbeddingModel.dimensions} dimensions.</small>
+                <span className={`freshness freshness-${selectedEmbeddingModel.status === "ready" ? "fresh" : "stale"}`}>{embeddingModelStatusLabel(selectedEmbeddingModel.status)}</span>
+                <small role={selectedEmbeddingModel.status === "failed" ? "alert" : undefined}>{selectedEmbeddingModel.error || selectedEmbeddingModel.message}</small>
               </div>
-              <label>
-                <span className="sr-only">Embedding model preset</span>
-                <select aria-label="Embedding model preset" value={config.embeddingPreset} onChange={(event) => updateConfig({ embeddingPreset: event.target.value })}>
-                  {embeddingModels.map((model) => <option key={model.id} value={model.id}>{model.label}</option>)}
-                </select>
-              </label>
-              {selectedEmbeddingModel && (
-                <div className="setup-embedding-status">
-                  <div>
-                    <strong>{selectedEmbeddingModel.model_name}</strong>
-                    <small>{selectedEmbeddingModel.description} {selectedEmbeddingModel.dimensions} dimensions.</small>
-                    <span className={`freshness freshness-${selectedEmbeddingModel.status === "ready" ? "fresh" : "stale"}`}>{embeddingModelStatusLabel(selectedEmbeddingModel.status)}</span>
-                    <small role={selectedEmbeddingModel.status === "failed" ? "alert" : undefined}>{selectedEmbeddingModel.error || selectedEmbeddingModel.message}</small>
-                  </div>
-                  {selectedEmbeddingModel.status !== "ready" && (
-                    <button
-                      className="button"
-                      id="setup-download-embedding-model"
-                      data-action-id={SETUP_ACTION_IDS.downloadEmbeddingModel}
-                      type="button"
-                      onClick={() => void runAction(
-                        "download-model",
-                        SETUP_ACTION_IDS.downloadEmbeddingModel,
-                        onDownloadEmbeddingModel ? () => onDownloadEmbeddingModel(selectedEmbeddingModel.id) : undefined,
-                        "Starting the pinned Hugging Face download…",
-                        "Model download started. You can leave this page while it completes.",
-                      )}
-                      disabled={!onDownloadEmbeddingModel || embeddingDownloadActive || selectedEmbeddingModel.status === "unavailable"}
-                    >
-                      {embeddingDownloadActive ? <LoaderCircle className="setup-spin" size={15} aria-hidden="true" /> : <Download size={15} aria-hidden="true" />}
-                      {embeddingDownloadActive ? "Downloading…" : "Download from Hugging Face"}
-                    </button>
+              {selectedEmbeddingModel.status !== "ready" && (
+                <button
+                  className="button"
+                  id="setup-download-embedding-model"
+                  data-action-id={SETUP_ACTION_IDS.downloadEmbeddingModel}
+                  type="button"
+                  onClick={() => void runAction(
+                    "download-model",
+                    SETUP_ACTION_IDS.downloadEmbeddingModel,
+                    onDownloadEmbeddingModel ? () => onDownloadEmbeddingModel(selectedEmbeddingModel.id) : undefined,
+                    "Starting the pinned Hugging Face download…",
+                    "Model download started. You can leave this page while it completes.",
                   )}
-                  <a href={selectedEmbeddingModel.source_url} target="_blank" rel="noreferrer">View model card</a>
-                </div>
+                  disabled={!onDownloadEmbeddingModel || embeddingDownloadActive || selectedEmbeddingModel.status === "unavailable"}
+                >
+                  {embeddingDownloadActive ? <LoaderCircle className="setup-spin" size={15} aria-hidden="true" /> : <Download size={15} aria-hidden="true" />}
+                  {embeddingDownloadActive ? "Downloading…" : "Download from Hugging Face"}
+                </button>
               )}
+              <a href={selectedEmbeddingModel.source_url} target="_blank" rel="noreferrer">View model card</a>
             </div>
           )}
-        </section>
-      </div>
+        </div>
+      )}
 
       <section className="panel setup-section setup-build" id="setup-section-build" aria-labelledby="setup-build-title">
         <div className="setup-build-header">
-          <SectionHeading step="04" eyebrow="Preview and build" title="See the cost before you commit" id="setup-build-title">
+          <SectionHeading step={isAdvanced ? "04" : "03"} eyebrow="Preview and build" title="See the cost before you commit" id="setup-build-title">
             Preview uses the selected machines, date range, providers, and reasoning policy. Start only after the estimate looks right.
           </SectionHeading>
           <div className="setup-build-actions">
@@ -611,6 +618,17 @@ export default function SetupPage({
           "Stop requested. The current command will exit safely.",
         ) : undefined} cancelling={action === "cancel"} />
       </section>
+
+      <details className="panel setup-maintenance">
+        <summary>Backup, update, removal, and agent access</summary>
+        <p>These optional commands keep credentials in the ignored <code>.chatreview</code> directory.</p>
+        <div className="setup-maintenance-grid">
+          <div><strong>Back up</strong><code>scripts/backup.sh</code></div>
+          <div><strong>Update</strong><code>scripts/update.sh</code></div>
+          <div><strong>Remove services</strong><code>scripts/uninstall.sh</code></div>
+          <div><strong>Read-only MCP</strong><code>uv sync --extra mcp</code></div>
+        </div>
+      </details>
     </div>
   );
 }

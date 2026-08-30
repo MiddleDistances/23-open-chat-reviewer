@@ -687,8 +687,8 @@ def create_app(settings: Settings) -> FastAPI:
         activity_classification: Literal["core", "supporting", "non-project", "unclassified"] | None = None,
         role: str | None = None,
         kind: str | None = None,
-        date_from: str | None = None,
-        date_to: str | None = None,
+        date_from: date | None = None,
+        date_to: date | None = None,
         errors_only: bool = False,
         include_reasoning: bool | None = None,
         profile: Literal["conversation", "episodes"] | None = None,
@@ -696,6 +696,8 @@ def create_app(settings: Settings) -> FastAPI:
         limit: Annotated[int, Query(ge=1, le=200)] = 50,
         offset: Annotated[int, Query(ge=0)] = 0,
     ) -> dict[str, Any]:
+        if date_from and date_to and date_from > date_to:
+            raise HTTPException(422, "date_from must be on or before date_to")
         if include_reasoning is None:
             saved_plan = setup_builds.status().plan
             include_reasoning = bool(
@@ -709,8 +711,8 @@ def create_app(settings: Settings) -> FastAPI:
             activity_classification=activity_classification,
             role=role,
             kind=kind,
-            date_from=date_from,
-            date_to=date_to,
+            date_from=date_from.isoformat() if date_from else None,
+            date_to=date_to.isoformat() if date_to else None,
             errors_only=errors_only,
             include_reasoning=include_reasoning,
         )
@@ -939,7 +941,8 @@ def create_app(settings: Settings) -> FastAPI:
         cluster_id: int | None = None,
         date_from: date | None = None,
         date_to: date | None = None,
-        limit: Annotated[int, Query(ge=100, le=500_000)] = 200_000,
+        recent_days: Annotated[int | None, Query(ge=1, le=3650)] = 30,
+        limit: Annotated[int, Query(ge=100, le=100_000)] = 20_000,
     ) -> dict[str, Any]:
         if date_from and date_to and date_from > date_to:
             raise HTTPException(422, "date_from must be on or before date_to")
@@ -953,6 +956,7 @@ def create_app(settings: Settings) -> FastAPI:
                 cluster_id=cluster_id,
                 date_from=date_from,
                 date_to=date_to,
+                recent_days=recent_days,
                 limit=limit,
             )
 

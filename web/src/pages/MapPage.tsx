@@ -16,14 +16,17 @@ import {
 } from "../components/Common";
 import type { SemanticRun } from "../types";
 
-const MAP_LIMIT = 200_000;
+const MAP_LIMIT = 20_000;
 const MAX_RENDERED_POINTS = 20_000;
+
+export type MapTimeRange = "7d" | "30d" | "90d" | "365d" | "all" | "custom";
 
 /** The filters understood by the semantic map endpoint. */
 export interface MapFilters {
   runId: string;
   provider: string;
   clusterId: string;
+  timeRange: MapTimeRange;
   dateFrom: string;
   dateTo: string;
 }
@@ -70,6 +73,9 @@ export interface MapData {
   sample_stride: number;
   points: MapPoint[];
   clusters: MapCluster[];
+  bounds?: { min_x: number; max_x: number; min_y: number; max_y: number } | null;
+  date_from?: string | null;
+  date_to?: string | null;
 }
 
 export interface MapPageProps {
@@ -87,6 +93,7 @@ const DEFAULT_FILTERS: MapFilters = {
   runId: "",
   provider: "",
   clusterId: "",
+  timeRange: "30d",
   dateFrom: "",
   dateTo: "",
 };
@@ -97,8 +104,9 @@ export function mapQuery(filters: MapFilters): string {
     run_id: filters.runId,
     provider: filters.provider,
     cluster_id: filters.clusterId,
-    date_from: filters.dateFrom,
-    date_to: filters.dateTo,
+    recent_days: filters.timeRange.endsWith("d") ? filters.timeRange.slice(0, -1) : undefined,
+    date_from: filters.timeRange === "custom" ? filters.dateFrom : undefined,
+    date_to: filters.timeRange === "custom" ? filters.dateTo : undefined,
     limit: MAP_LIMIT,
   });
 }
@@ -146,8 +154,9 @@ export default function MapPage({
 
   const visiblePoints = useMemo(() => {
     if (!data) return [];
+    if (filters.timeRange !== "custom") return data.points;
     return data.points.filter((point) => pointMatchesDate(point, filters.dateFrom, filters.dateTo));
-  }, [data, filters.dateFrom, filters.dateTo]);
+  }, [data, filters.dateFrom, filters.dateTo, filters.timeRange]);
   const pointsToRender = visiblePoints.slice(0, MAX_RENDERED_POINTS);
 
   useEffect(() => {
@@ -177,15 +186,22 @@ export default function MapPage({
     return runs;
   }, [data?.run, semanticRuns]);
 
-  const isFiltered = Object.values(filters).some(Boolean);
-  const displayedTotal = data ? visiblePoints.length : 0;
+  const isFiltered = Boolean(
+    filters.runId || filters.provider || filters.clusterId || filters.timeRange !== "30d" ||
+    filters.dateFrom || filters.dateTo,
+  );
+  const displayedTotal = data
+    ? filters.timeRange === "custom" && injectedData !== undefined
+      ? visiblePoints.length
+      : data.total
+    : 0;
 
   return (
     <>
       <PageHeader eyebrow="Derived view" title="The semantic shape of the corpus">
         <div className="map-count" aria-live="polite">
           <Crosshair size={15} />
-          {formatNumber(data ? (isFiltered ? displayedTotal : data.total) : 0)} windows
+          {loading ? "Loading…" : `${formatNumber(displayedTotal)} windows`}
         </div>
       </PageHeader>
 
@@ -194,6 +210,7 @@ export default function MapPage({
         <label>
           <span className="sr-only">Semantic run</span>
           <select
+            id="map-semantic-run"
             aria-label="Semantic run"
             value={filters.runId}
             onChange={(event) => updateFilters({ runId: event.target.value, clusterId: "" })}
@@ -206,30 +223,46 @@ export default function MapPage({
         </label>
         <label>
           <span className="sr-only">Provider</span>
-          <select aria-label="Provider" value={filters.provider} onChange={(event) => updateFilters({ provider: event.target.value })}>
+          <select id="map-provider" aria-label="Provider" value={filters.provider} onChange={(event) => updateFilters({ provider: event.target.value })}>
             <ProviderOptions />
           </select>
         </label>
         <label>
           <span className="sr-only">Cluster</span>
-          <select aria-label="Cluster" value={filters.clusterId} onChange={(event) => updateFilters({ clusterId: event.target.value })}>
+          <select id="map-cluster" aria-label="Cluster" value={filters.clusterId} onChange={(event) => updateFilters({ clusterId: event.target.value })}>
             <option value="">All clusters</option>
             {data?.clusters.map((cluster) => (
               <option key={cluster.cluster_id} value={cluster.cluster_id}>{cluster.label} ({cluster.window_count.toLocaleString()})</option>
             ))}
           </select>
         </label>
-        <label className="map-date-filter">
+        <label>
+          <span className="sr-only">Time range</span>
+          <select
+            id="map-time-range"
+            aria-label="Time range"
+            value={filters.timeRange}
+            onChange={(event) => updateFilters({ timeRange: event.target.value as MapTimeRange })}
+          >
+            <option value="7d">Recent 7 days</option>
+            <option value="30d">Recent 30 days</option>
+            <option value="90d">Recent 90 days</option>
+            <option value="365d">Recent year</option>
+            <option value="all">All time</option>
+            <option value="custom">Custom dates</option>
+          </select>
+        </label>
+        {filters.timeRange === "custom" && <label className="map-date-filter">
           <CalendarDays size={14} aria-hidden="true" />
           <span className="sr-only">Date from</span>
-          <input aria-label="Date from" type="date" value={filters.dateFrom} max={filters.dateTo || undefined} onChange={(event) => updateFilters({ dateFrom: event.target.value })} />
-        </label>
-        <span aria-hidden="true" className="map-date-separator">to</span>
-        <label className="map-date-filter">
+          <input id="map-date-from" aria-label="Date from" type="date" value={filters.dateFrom} max={filters.dateTo || undefined} onChange={(event) => updateFilters({ dateFrom: event.target.value })} />
+        </label>}
+        {filters.timeRange === "custom" && <span aria-hidden="true" className="map-date-separator">to</span>}
+        {filters.timeRange === "custom" && <label className="map-date-filter">
           <span className="sr-only">Date to</span>
-          <input aria-label="Date to" type="date" value={filters.dateTo} min={filters.dateFrom || undefined} onChange={(event) => updateFilters({ dateTo: event.target.value })} />
-        </label>
-        {isFiltered && <button type="button" className="text-button" onClick={() => updateFilters(DEFAULT_FILTERS)}><RotateCcw size={13} />Reset</button>}
+          <input id="map-date-to" aria-label="Date to" type="date" value={filters.dateTo} min={filters.dateFrom || undefined} onChange={(event) => updateFilters({ dateTo: event.target.value })} />
+        </label>}
+        {isFiltered && <button id="map-reset-filters" data-action-id="map.filters.reset" type="button" className="text-button" onClick={() => updateFilters(DEFAULT_FILTERS)}><RotateCcw size={13} />Reset</button>}
         {data?.run && <span className={`freshness freshness-${data.run.freshness}`}>{data.run.profile} snapshot · {data.run.freshness}</span>}
         {data?.sample_stride && data.sample_stride > 1 && <span>Showing 1 in {data.sample_stride} points</span>}
       </div>
@@ -249,7 +282,7 @@ export default function MapPage({
       {!loading && !error && data?.run && visiblePoints.length > 0 && (
         <div className="map-workspace">
           <div className="deck-container map-plot-container">
-            <AccessiblePointMap points={pointsToRender} selected={selected} hovered={hovered} onHover={setHovered} onSelect={selectPoint} />
+            <AccessiblePointMap points={pointsToRender} bounds={data.bounds} selected={selected} hovered={hovered} onHover={setHovered} onSelect={selectPoint} />
             {hovered && <div className="map-tooltip" role="tooltip">{mapPointTooltip(hovered)}</div>}
             {visiblePoints.length > pointsToRender.length && <p className="map-sample-note">Showing {formatNumber(pointsToRender.length)} of {formatNumber(visiblePoints.length)} points for responsive rendering.</p>}
           </div>
@@ -262,18 +295,28 @@ export default function MapPage({
 
 function AccessiblePointMap({
   points,
+  bounds: stableBounds,
   selected,
   hovered,
   onHover,
   onSelect,
 }: {
   points: MapPoint[];
+  bounds?: MapData["bounds"];
   selected: MapPoint | null;
   hovered: MapPoint | null;
   onHover: (point: MapPoint | null) => void;
   onSelect: (point: MapPoint) => void;
 }) {
-  const bounds = useMemo(() => pointBounds(points), [points]);
+  const bounds = useMemo(
+    () => stableBounds ? {
+      minX: stableBounds.min_x,
+      maxX: stableBounds.max_x,
+      minY: stableBounds.min_y,
+      maxY: stableBounds.max_y,
+    } : pointBounds(points),
+    [points, stableBounds],
+  );
   return (
     <div className="map-plot" role="group" aria-label="Semantic projection points">
       <svg viewBox="0 0 1000 640" role="img" aria-label={`${points.length.toLocaleString()} semantic windows plotted by similarity`} preserveAspectRatio="none">

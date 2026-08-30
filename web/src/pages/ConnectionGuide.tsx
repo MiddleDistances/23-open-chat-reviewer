@@ -219,11 +219,7 @@ export function WriterSetupGuide({
   const slug = machineSlug(machineName);
   const centralCommand = `scripts/create-writer-config.sh ${slug}`;
   const installLines = [
-    "git clone https://github.com/MiddleDistances/23-open-chat-reviewer.git",
-    "cd 23-open-chat-reviewer",
-    "uv sync",
-    ...(platform === "macos" ? ["brew install flock"] : []),
-    `uv run open-chat-reviewer writer install ~/Downloads/${slug}.env`,
+    `git clone https://github.com/MiddleDistances/23-open-chat-reviewer.git && cd 23-open-chat-reviewer && scripts/connect-computer.sh ~/Downloads/${slug}.env`,
   ];
 
   return (
@@ -305,7 +301,7 @@ export function WriterSetupGuide({
           <div><strong>Move the private file to the other computer.</strong><span>Transfer <code>.chatreview/writers/{slug}.env</code> securely. Do not email it, commit it, or paste it into chat.</span></div>
         </li>
         <li>
-          <div><strong>Run one installation command on the other computer.</strong><span>It checks the database, previews local sources, performs the first resumable sync, and installs the three-hour schedule.</span></div>
+          <div><strong>Run one installation command on the other computer.</strong><span>It installs what is needed{platform === "macos" ? ", including flock through Homebrew when missing" : ""}, checks the database, performs the first resumable sync, and installs the three-hour schedule.</span></div>
           <CommandBlock id="setup-copy-install-writer" actionId="setup.writer.copy-install" lines={installLines} />
         </li>
         <li>

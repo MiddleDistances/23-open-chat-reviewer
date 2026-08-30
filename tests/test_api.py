@@ -132,6 +132,11 @@ def test_setup_preview_and_map_date_validation(corpus, monkeypatch) -> None:
         params={"date_from": "2026-08-30", "date_to": "2026-08-01"},
     )
     assert inverted.status_code == 422
+    inverted_search = client.get(
+        "/api/search",
+        params={"q": "migration", "date_from": "2026-08-30", "date_to": "2026-08-01"},
+    )
+    assert inverted_search.status_code == 422
 
     build = client.get("/api/setup/build")
     assert build.status_code == 200

@@ -69,8 +69,8 @@ describe("multi-machine connection guide", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "macOS" }));
 
-    expect(screen.getByText(/brew install flock/i)).toBeInTheDocument();
-    expect(screen.getByText(/writer install ~\/Downloads\/studio-laptop.env/i)).toBeInTheDocument();
+    expect(screen.getByText(/scripts\/connect-computer.sh ~\/Downloads\/studio-laptop.env/i)).toBeInTheDocument();
+    expect(screen.getByText(/including flock through Homebrew/i)).toBeInTheDocument();
     expect(screen.getByRole("alert")).toHaveTextContent(/postgresql is currently local-only/i);
     expect(document.body.textContent).not.toMatch(/postgres(?:ql)?:\/\//i);
   });

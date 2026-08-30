@@ -1,9 +1,25 @@
-import { ArrowUpRight, Braces, Search as SearchIcon, Sparkles } from "lucide-react";
+import { ArrowUpRight, Braces, CalendarDays, Search as SearchIcon, Sparkles } from "lucide-react";
 import { FormEvent, useState } from "react";
 import { Link } from "react-router-dom";
 import { queryString, useApi } from "../api";
 import { Badge, EmptyState, ErrorNotice, Highlight, Loading, PageHeader, ProviderOptions, formatDate, projectName } from "../components/Common";
 import type { SearchResponse, SemanticRun } from "../types";
+
+export type SearchTimeRange = "7d" | "30d" | "90d" | "365d" | "all" | "custom";
+
+export function searchDateRange(range: SearchTimeRange, today = new Date()): { dateFrom: string; dateTo: string } {
+  if (range === "all" || range === "custom") return { dateFrom: "", dateTo: "" };
+  const days = Number(range.slice(0, -1));
+  const end = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const start = new Date(end);
+  start.setDate(start.getDate() - days + 1);
+  const format = (value: Date) => [
+    value.getFullYear(),
+    String(value.getMonth() + 1).padStart(2, "0"),
+    String(value.getDate()).padStart(2, "0"),
+  ].join("-");
+  return { dateFrom: format(start), dateTo: format(end) };
+}
 
 export default function SearchPage() {
   const [input, setInput] = useState("");
@@ -11,8 +27,22 @@ export default function SearchPage() {
   const [mode, setMode] = useState("hybrid");
   const [provider, setProvider] = useState("");
   const [runKey, setRunKey] = useState("");
+  const [timeRange, setTimeRange] = useState<SearchTimeRange>("30d");
+  const [customDateFrom, setCustomDateFrom] = useState("");
+  const [customDateTo, setCustomDateTo] = useState("");
+  const selectedDates = timeRange === "custom"
+    ? { dateFrom: customDateFrom, dateTo: customDateTo }
+    : searchDateRange(timeRange);
   const { data: semanticRuns } = useApi<SemanticRun[]>("/api/semantic-runs");
-  const path = query ? `/api/search?${queryString({ q: query, mode, provider, run_key: runKey, limit: 50 })}` : null;
+  const path = query ? `/api/search?${queryString({
+    q: query,
+    mode,
+    provider,
+    run_key: runKey,
+    date_from: selectedDates.dateFrom,
+    date_to: selectedDates.dateTo,
+    limit: 50,
+  })}` : null;
   const { data, loading, error } = useApi<SearchResponse>(path);
   function submit(event: FormEvent) { event.preventDefault(); setQuery(input.trim()); }
   return (
@@ -28,6 +58,25 @@ export default function SearchPage() {
           {semanticRuns?.filter((run) => run.status === "complete").map((run) => <option key={run.run_key} value={run.run_key}>{run.profile} · {run.chunk_count.toLocaleString()} · {run.freshness}</option>)}
         </select>
         <button className="button button-primary" type="submit">Search</button>
+        <div className="search-time-controls" aria-label="Search date constraints">
+          <CalendarDays size={15} aria-hidden="true" />
+          <label>
+            <span className="sr-only">Search time range</span>
+            <select id="search-time-range" aria-label="Search time range" value={timeRange} onChange={(event) => setTimeRange(event.target.value as SearchTimeRange)}>
+              <option value="7d">Recent 7 days</option>
+              <option value="30d">Recent 30 days</option>
+              <option value="90d">Recent 90 days</option>
+              <option value="365d">Recent year</option>
+              <option value="all">All time</option>
+              <option value="custom">Custom dates</option>
+            </select>
+          </label>
+          {timeRange === "custom" && <>
+            <label><span>From</span><input id="search-date-from" aria-label="Search date from" type="date" value={customDateFrom} max={customDateTo || undefined} onChange={(event) => setCustomDateFrom(event.target.value)} /></label>
+            <label><span>To</span><input id="search-date-to" aria-label="Search date to" type="date" value={customDateTo} min={customDateFrom || undefined} onChange={(event) => setCustomDateTo(event.target.value)} /></label>
+          </>}
+          <small>{selectedDates.dateFrom && selectedDates.dateTo ? `${selectedDates.dateFrom} to ${selectedDates.dateTo}` : "Every archived date"}</small>
+        </div>
       </form>
       {!query && <EmptyState title="Start with a concrete trace"><span>Try an error message, a recurring objective, a source path, or the name of an approach that may have been repeated.</span></EmptyState>}
       {loading && <Loading label="Searching indexed evidence" />}

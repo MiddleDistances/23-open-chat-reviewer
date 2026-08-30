@@ -14,10 +14,13 @@ import {
   Tags,
   Waypoints,
   X,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 import { lazy, Suspense, useState } from "react";
 import { NavLink, Route, Routes } from "react-router-dom";
 import { Loading } from "./components/Common";
+import { useExperienceMode } from "./preferences";
 
 const ArtifactsPage = lazy(() => import("./pages/ArtifactsPage"));
 const DashboardPage = lazy(() => import("./pages/DashboardPage"));
@@ -34,38 +37,45 @@ const navigation = [
   {
     label: "Review",
     items: [
-      { to: "/", label: "Focus", icon: CircleGauge },
-      { to: "/trace", label: "Chat trace", icon: Waypoints },
-      { to: "/episodes", label: "Episodes", icon: GitCompareArrows },
-      { to: "/review", label: "Labels & notes", icon: Tags },
+      { to: "/", label: "Home", icon: CircleGauge, basic: true },
+      { to: "/trace", label: "Chat trace", icon: Waypoints, basic: false },
+      { to: "/episodes", label: "Episodes", icon: GitCompareArrows, basic: false },
+      { to: "/review", label: "Labels & notes", icon: Tags, basic: false },
     ],
   },
   {
     label: "Explore",
     items: [
-      { to: "/search", label: "Search", icon: Search },
-      { to: "/map", label: "Semantic map", icon: Map },
-      { to: "/sessions", label: "Sessions", icon: Boxes },
-      { to: "/artifacts", label: "Code evidence", icon: FileCode2 },
+      { to: "/search", label: "Search", icon: Search, basic: true },
+      { to: "/map", label: "Semantic map", icon: Map, basic: false },
+      { to: "/sessions", label: "Sessions", icon: Boxes, basic: false },
+      { to: "/artifacts", label: "Code evidence", icon: FileCode2, basic: false },
     ],
   },
   {
     label: "Work archive",
     items: [
-      { to: "/projects", label: "Projects & categories", icon: FolderKanban },
-      { to: "/work-trail", label: "Work trail", icon: GitCompareArrows },
-      { to: "/timesheets", label: "Workload calendar", icon: CalendarClock },
-      { to: "/archive-status", label: "Archive status", icon: Archive },
+      { to: "/projects", label: "Projects & categories", icon: FolderKanban, basic: false },
+      { to: "/work-trail", label: "Work trail", icon: GitCompareArrows, basic: false },
+      { to: "/timesheets", label: "Workload", icon: CalendarClock, basic: true },
+      { to: "/archive-status", label: "Archive status", icon: Archive, basic: false },
     ],
   },
   {
     label: "System",
-    items: [{ to: "/setup", label: "Setup & storage", icon: Settings2 }],
+    items: [{ to: "/setup", label: "Setup", icon: Settings2, basic: true }],
   },
 ];
 
 export default function App() {
   const [navigationOpen, setNavigationOpen] = useState(false);
+  const [experienceMode, setExperienceMode] = useExperienceMode();
+  const visibleNavigation = navigation
+    .map((group) => ({
+      ...group,
+      items: group.items.filter((item) => experienceMode === "advanced" || item.basic),
+    }))
+    .filter((group) => group.items.length > 0);
 
   return (
     <div className="app-shell">
@@ -81,6 +91,8 @@ export default function App() {
           <button
             type="button"
             className="nav-toggle"
+            id="app-navigation-toggle"
+            data-action-id="app.navigation.toggle"
             aria-label={navigationOpen ? "Close navigation" : "Open navigation"}
             aria-controls="primary-navigation"
             aria-expanded={navigationOpen}
@@ -90,7 +102,7 @@ export default function App() {
           </button>
         </div>
         <nav id="primary-navigation" aria-label="Primary navigation">
-          {navigation.map((group) => (
+          {visibleNavigation.map((group) => (
             <div className="nav-group" key={group.label}>
               <span className="nav-label">{group.label}</span>
               {group.items.map(({ to, label, icon: Icon }) => (
@@ -102,6 +114,16 @@ export default function App() {
             </div>
           ))}
         </nav>
+        <button
+          type="button"
+          className="nav-mode-toggle"
+          id="app-experience-mode-toggle"
+          data-action-id="app.experience.toggle"
+          onClick={() => setExperienceMode(experienceMode === "basic" ? "advanced" : "basic")}
+        >
+          {experienceMode === "basic" ? <Eye size={15} /> : <EyeOff size={15} />}
+          <span>{experienceMode === "basic" ? "Show advanced tools" : "Use simple navigation"}</span>
+        </button>
         <div className="privacy-note">
           <span className="pulse-dot" />
           Self-hosted archive

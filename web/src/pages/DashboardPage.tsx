@@ -183,7 +183,8 @@ function ArchiveFallback({
       )}
       {sessions?.length === 0 && (
         <EmptyState title="No archived conversations yet">
-          Open Setup &amp; storage to discover this machine and start the first sync.
+          <span>Choose a short history range first; you can always extend it later.</span>
+          <Link className="button button-primary" to="/setup">Set up this computer</Link>
         </EmptyState>
       )}
     </div>

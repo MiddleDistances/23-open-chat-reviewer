@@ -307,6 +307,7 @@ export default function SetupRoute() {
 
   return (
     <SetupPage
+      firstRun={Boolean(setupStatus && setupStatus.database.ingestion_complete === 0)}
       machines={machines}
       connection={connection}
       estimate={preview ? estimateFromPreview(preview) : null}
