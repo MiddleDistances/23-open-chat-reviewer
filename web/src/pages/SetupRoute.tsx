@@ -115,15 +115,27 @@ export default function SetupRoute() {
 
   const machines = useMemo<SetupMachine[]>(() => {
     if (preview?.machines.length) {
-      return preview.machines.map((machine) => ({
-        id: machine.machine_id,
-        name: machine.name,
-        status: machine.machine_id === setupStatus?.machine.id ? "current" : "connected",
-        sourceRoots: [],
-        lastSeenAt: machine.last_seen_at,
-        eventCount: machine.event_count,
-        note: `${machine.source_count.toLocaleString()} sources`,
-      }));
+      return preview.machines.map((machine) => {
+        const isCurrent = machine.machine_id === setupStatus?.machine.id;
+        return {
+          id: machine.machine_id,
+          name: machine.name,
+          platform: isCurrent ? setupStatus?.machine.hostname : null,
+          status: isCurrent ? "current" : "connected",
+          sourceRoots: isCurrent
+            ? (setupStatus?.roots ?? [])
+                .filter((root) => root.path)
+                .map((root) => ({
+                  provider: root.provider,
+                  path: root.path as string,
+                  discovered: root.exists && root.readable,
+                }))
+            : [],
+          lastSeenAt: machine.last_seen_at,
+          eventCount: machine.event_count,
+          note: `${machine.source_count.toLocaleString()} sources`,
+        } satisfies SetupMachine;
+      });
     }
     if (!setupStatus) return [];
     const syncing = Boolean(
