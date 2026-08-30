@@ -13,6 +13,7 @@ from chatreview.summary_providers import (
     SummaryProviderError,
     parse_json_object,
     provider_from_environment,
+    resolve_cli_executable,
 )
 
 
@@ -164,6 +165,49 @@ def test_codex_cli_provider_uses_stdin_fixed_sandbox_and_schema(monkeypatch, tmp
     assert "shell" not in options
 
 
+def test_codex_cli_provider_normalizes_optional_fields_for_strict_output(
+    monkeypatch, tmp_path
+) -> None:
+    schemas = []
+
+    def fake_run(argv, **kwargs):
+        schema_path = argv[argv.index("--output-schema") + 1]
+        with open(schema_path, encoding="utf-8") as stream:
+            schemas.append(json.load(stream))
+        output = argv[argv.index("--output-last-message") + 1]
+        with open(output, "w", encoding="utf-8") as stream:
+            json.dump({"required_value": "ready", "optional_value": None}, stream)
+        return subprocess.CompletedProcess(argv, 0, stdout="", stderr="")
+
+    monkeypatch.setattr("chatreview.summary_providers.subprocess.run", fake_run)
+    provider = CliSummaryProvider(
+        kind="codex-cli",
+        executable="/opt/bin/codex",
+        runtime_root=tmp_path,
+    )
+
+    provider.generate_json(
+        system_prompt="system",
+        user_prompt="evidence",
+        schema_name="card",
+        schema={
+            "type": "object",
+            "properties": {
+                "required_value": {"type": "string"},
+                "optional_value": {
+                    "anyOf": [{"type": "string"}, {"type": "null"}],
+                    "default": None,
+                },
+            },
+            "required": ["required_value"],
+        },
+    )
+
+    assert schemas[0]["required"] == ["required_value", "optional_value"]
+    assert schemas[0]["additionalProperties"] is False
+    assert "default" not in schemas[0]["properties"]["optional_value"]
+
+
 def test_claude_cli_provider_parses_structured_output_without_tools(monkeypatch, tmp_path) -> None:
     calls = []
 
@@ -210,6 +254,21 @@ def test_environment_factory_supports_existing_cli_login(monkeypatch, tmp_path) 
 
     assert isinstance(provider, CliSummaryProvider)
     assert provider.model_name == "codex-cli"
+
+
+def test_cli_resolution_prefers_current_user_installation_over_system_path(
+    monkeypatch, tmp_path
+) -> None:
+    user_cli = tmp_path / ".local/bin/codex"
+    user_cli.parent.mkdir(parents=True)
+    user_cli.write_text("#!/bin/sh\n")
+    user_cli.chmod(0o700)
+    monkeypatch.setattr("chatreview.summary_providers.Path.home", lambda: tmp_path)
+    monkeypatch.setattr(
+        "chatreview.summary_providers.shutil.which", lambda _command: "/usr/bin/codex"
+    )
+
+    assert resolve_cli_executable("codex") == str(user_cli.resolve())
 
 
 def test_cli_override_does_not_inherit_an_unrelated_qwen_model(monkeypatch, tmp_path) -> None:

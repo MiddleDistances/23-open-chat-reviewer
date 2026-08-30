@@ -333,7 +333,9 @@ class CliSummaryProvider:
         if self.kind == "codex-cli":
             schema_path = workdir / "output-schema.json"
             output_path = workdir / "last-message.json"
-            schema_path.write_text(json.dumps(schema, ensure_ascii=False))
+            schema_path.write_text(
+                json.dumps(_codex_output_schema(schema), ensure_ascii=False)
+            )
             return (
                 [
                     executable,
@@ -406,7 +408,7 @@ def resolve_cli_executable(command: str) -> str | None:
         Path("/usr/local/bin") / command,
     ]
     if discovered:
-        candidates.insert(0, Path(discovered))
+        candidates.append(Path(discovered))
     for candidate in candidates:
         try:
             if candidate.is_file() and os.access(candidate, os.X_OK):
@@ -487,6 +489,25 @@ def _cli_prompt(
         f"Return only one JSON object named {schema_name} that validates against this schema:\n"
         f"{json.dumps(schema, separators=(',', ':'), ensure_ascii=False)}"
     )
+
+
+def _codex_output_schema(value: Any) -> Any:
+    """Convert a model schema to Codex's strict structured-output subset."""
+
+    if isinstance(value, dict):
+        normalized = {
+            key: _codex_output_schema(item)
+            for key, item in value.items()
+            if key != "default"
+        }
+        properties = normalized.get("properties")
+        if isinstance(properties, dict):
+            normalized["required"] = list(properties)
+            normalized["additionalProperties"] = False
+        return normalized
+    if isinstance(value, list):
+        return [_codex_output_schema(item) for item in value]
+    return value
 
 
 def _parse_cli_output(kind: CliProviderKind, raw: str) -> dict[str, Any]:
