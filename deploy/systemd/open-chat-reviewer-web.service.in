@@ -1,0 +1,17 @@
+[Unit]
+Description=Open Chat Reviewer local web application
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=@REPO_ROOT@
+Environment=CHATREVIEW_ENV_FILE=@REPO_ROOT@/.chatreview/archive.env
+ExecStart=@REPO_ROOT@/scripts/chatreview-web.sh
+Restart=on-failure
+RestartSec=10
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=default.target

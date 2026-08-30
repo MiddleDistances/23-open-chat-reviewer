@@ -1,0 +1,23 @@
+name: open-chat-reviewer
+
+services:
+  db:
+    image: pgvector/pgvector:pg17
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: chatreview
+      POSTGRES_USER: chatreview
+      POSTGRES_PASSWORD: chatreview
+    ports:
+      - "127.0.0.1:54329:5432"
+    volumes:
+      - chatreview-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chatreview -d chatreview"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+volumes:
+  chatreview-postgres:

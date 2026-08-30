@@ -1,0 +1,75 @@
+[project]
+name = "open-chat-reviewer"
+version = "0.1.0"
+description = "Self-hosted PostgreSQL archive and review workspace for AI conversations"
+readme = "README.md"
+requires-python = ">=3.12,<3.14"
+license = "Apache-2.0"
+keywords = ["ai", "chat", "codex", "claude", "gemini", "postgresql", "self-hosted"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "Framework :: FastAPI",
+  "License :: OSI Approved :: Apache Software License",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Database :: Database Engines/Servers",
+]
+dependencies = [
+  "fastapi>=0.116",
+  "orjson>=3.10",
+  "pgvector>=0.4",
+  "psycopg[binary,pool]>=3.2",
+  "pydantic>=2.11",
+  "typer>=0.16",
+  "uvicorn[standard]>=0.35",
+]
+
+[project.optional-dependencies]
+semantic = [
+  "hdbscan>=0.8.40",
+  "llvmlite>=0.44",
+  "numba>=0.61",
+  "numpy>=2.0",
+  "sentence-transformers>=5.0",
+  "umap-learn>=0.5.9",
+]
+dev = [
+  "httpx>=0.28",
+  "pytest>=8.4",
+  "pytest-cov>=6.2",
+]
+
+[project.scripts]
+open-chat-reviewer = "chatreview.cli:app"
+chatreview = "chatreview.cli:app"
+
+[build-system]
+requires = ["uv_build>=0.8.0,<0.9"]
+build-backend = "uv_build"
+
+[tool.uv]
+default-groups = ["dev"]
+
+[tool.uv.build-backend]
+module-name = "chatreview"
+
+[dependency-groups]
+dev = [
+  "httpx>=0.28",
+  "pytest>=8.4",
+  "pytest-cov>=6.2",
+  "ruff>=0.12",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 110
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = ["SIM103", "SIM118"]
