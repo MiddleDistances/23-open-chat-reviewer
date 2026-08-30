@@ -6,14 +6,23 @@ import {
   FolderGit2,
   GitBranch,
   MapPin,
+  MessageSquareText,
   Monitor,
   Sparkles,
 } from "lucide-react";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useApi } from "../api";
-import { EmptyState, ErrorNotice, Loading, formatDate, projectName } from "../components/Common";
-import type { ResumeState, ResumeSurface, ResumeSurfaceResponse } from "../types";
+import {
+  Badge,
+  EmptyState,
+  ErrorNotice,
+  Loading,
+  formatDate,
+  formatNumber,
+  projectName,
+} from "../components/Common";
+import type { ResumeState, ResumeSurface, ResumeSurfaceResponse, Session } from "../types";
 
 type ResumeFilter = "open" | ResumeState | "all";
 
@@ -31,10 +40,25 @@ const FILTERS: Array<{ value: ResumeFilter; label: string }> = [
 export default function DashboardPage() {
   const [filter, setFilter] = useState<ResumeFilter>("open");
   const { data, loading, error } = useApi<ResumeSurfaceResponse>("/api/resume-surfaces?limit=200");
+  const needsArchiveFallback = Boolean(data && data.surfaces.length === 0);
+  const {
+    data: recentSessions,
+    loading: sessionsLoading,
+    error: sessionsError,
+  } = useApi<Session[]>(needsArchiveFallback ? "/api/sessions?limit=20" : null);
 
   if (loading) return <Loading label="Recovering recent work threads" />;
   if (error) return <ErrorNotice message={error} />;
   if (!data) return null;
+  if (needsArchiveFallback) {
+    return (
+      <ArchiveFallback
+        sessions={recentSessions}
+        loading={sessionsLoading}
+        error={sessionsError}
+      />
+    );
+  }
 
   const visible = data.surfaces.filter((surface) => matchesFilter(surface, filter));
   const openCount = data.surfaces.filter((surface) => surface.current_state !== "done").length;
@@ -94,6 +118,74 @@ export default function DashboardPage() {
           </EmptyState>
         )}
       </div>
+    </div>
+  );
+}
+
+function ArchiveFallback({
+  sessions,
+  loading,
+  error,
+}: {
+  sessions: Session[] | null;
+  loading: boolean;
+  error: string | null;
+}) {
+  return (
+    <div className="resume-dashboard">
+      <header className="resume-header">
+        <div>
+          <span className="resume-kicker">Archive ready</span>
+          <h1>Continue from a recent conversation.</h1>
+          <p>
+            The archive is populated. These are chronological PostgreSQL records; optional
+            model-authored work summaries have not been enabled on this installation.
+          </p>
+        </div>
+        <div
+          className="resume-overview"
+          aria-label={`${sessions?.length ?? 0} recent conversations shown`}
+        >
+          <strong>{sessions?.length ?? 0}</strong>
+          <span>recent conversations</span>
+          <small>Direct archive evidence</small>
+        </div>
+      </header>
+
+      <aside className="resume-method-note">
+        <MessageSquareText size={17} aria-hidden="true" />
+        <p>
+          Provider, project, timestamps, and counts come directly from the archive. Open any row
+          to inspect its evidence trace.
+        </p>
+      </aside>
+
+      {loading && <Loading label="Loading recent conversations" />}
+      {error && <ErrorNotice message={error} />}
+      {sessions && sessions.length > 0 && (
+        <div className="session-table" aria-label="Recent archived conversations">
+          {sessions.map((session) => (
+            <Link to={`/trace/${session.id}`} className="session-row" key={session.id}>
+              <div className={`provider-monogram provider-${session.provider}`}>
+                {session.provider.slice(0, 1).toUpperCase()}
+              </div>
+              <div className="session-primary">
+                <strong>{session.title || projectName(session.project)}</strong>
+                <small>{session.external_id}</small>
+              </div>
+              <Badge tone={session.provider}>{session.provider}</Badge>
+              <span>{formatDate(session.ended_at ?? session.started_at, true)}</span>
+              <span>{formatNumber(session.event_count)} events</span>
+              <span>{formatNumber(session.text_unit_count)} texts</span>
+            </Link>
+          ))}
+        </div>
+      )}
+      {sessions?.length === 0 && (
+        <EmptyState title="No archived conversations yet">
+          Open Setup &amp; storage to discover this machine and start the first sync.
+        </EmptyState>
+      )}
     </div>
   );
 }

@@ -114,4 +114,38 @@ describe("resume dashboard", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock).toHaveBeenCalledWith("/api/resume-surfaces?limit=200", expect.anything());
   });
+
+  it("shows recent archive sessions when no optional summary batch exists", async () => {
+    const fetchMock = vi.fn((input: string) => Promise.resolve({
+      ok: true,
+      status: 200,
+      json: async () => input.startsWith("/api/sessions")
+        ? [{
+            id: 77,
+            session_key: "codex:77",
+            provider: "codex",
+            external_id: "01a050f3",
+            project: "23-chatReviewer",
+            cwd: "/home/michael/Documents/23-chatReviewer",
+            started_at: "2026-08-30T04:35:27Z",
+            ended_at: "2026-08-30T05:16:54Z",
+            title: null,
+            event_count: 1234,
+            text_unit_count: 456,
+          }]
+        : { ...response, surfaces: [], total: 0, states: {}, latest_run: null },
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<MemoryRouter><DashboardPage /></MemoryRouter>);
+
+    expect(await screen.findByText("23-chatReviewer")).toBeInTheDocument();
+    expect(screen.getByText(/1,234 events/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /23-chatReviewer/i })).toHaveAttribute(
+      "href",
+      "/trace/77",
+    );
+    expect(screen.queryByText("Nothing in this view")).not.toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith("/api/sessions?limit=20", expect.anything());
+  });
 });
