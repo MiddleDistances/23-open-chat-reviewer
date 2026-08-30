@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import date
+
 import orjson
 
 from chatreview.db import database
@@ -40,6 +42,58 @@ def test_ingestion_is_complete_searchable_and_idempotent(corpus) -> None:
     assert second.events == 0
     with database(settings.database_url, read_only=True) as connection:
         assert connection.execute("SELECT COUNT(*) FROM events").fetchone()[0] == 10
+
+
+def test_prune_orphan_contents_keeps_referenced_projection_content(corpus) -> None:
+    settings, _, _ = corpus
+    ingestor = make_ingestor(settings)
+    ingestor.run()
+    with database(settings.database_url) as connection:
+        before = int(connection.execute("SELECT COUNT(*) FROM contents").fetchone()[0])
+        connection.execute(
+            "INSERT INTO contents(content_hash, text, char_count) VALUES (?, ?, ?)",
+            ("orphan-content-hash", "temporary orphan", len("temporary orphan")),
+        )
+        assert int(connection.execute("SELECT COUNT(*) FROM contents").fetchone()[0]) == before + 1
+        ingestor._prune_orphan_contents(connection)
+        assert int(connection.execute("SELECT COUNT(*) FROM contents").fetchone()[0]) == before
+
+
+def test_history_scope_filters_before_raw_persistence_and_keeps_aggregates(corpus) -> None:
+    settings, _, _ = corpus
+    summary = make_ingestor(settings).run(
+        history_since=date(2026, 7, 18),
+        history_until=date(2026, 7, 18),
+    )
+
+    assert summary.discovered_files == 3
+    assert summary.excluded_files == 1
+    assert summary.aggregate_files == 2
+    with database(settings.database_url, read_only=True) as connection:
+        assert connection.execute("SELECT COUNT(*) FROM sources").fetchone()[0] == 3
+        assert connection.execute("SELECT COUNT(*) FROM raw_records").fetchone()[0] == 7
+        assert not connection.execute(
+            "SELECT 1 FROM sources WHERE path LIKE '%22222222-2222-2222-2222-222222222222.jsonl'"
+        ).fetchone()
+
+
+def test_history_scope_is_applied_before_deterministic_sharding(corpus) -> None:
+    settings, _, _ = corpus
+    summaries = [
+        make_ingestor(settings).run(
+            history_since="2026-07-18",
+            history_until="2026-07-18",
+            shard_index=index,
+            shard_count=2,
+        )
+        for index in range(2)
+    ]
+
+    assert sum(summary.discovered_files for summary in summaries) == 3
+    assert max(summary.excluded_files for summary in summaries) == 1
+    assert max(summary.aggregate_files for summary in summaries) == 2
+    with database(settings.database_url, read_only=True) as connection:
+        assert connection.execute("SELECT COUNT(*) FROM sources").fetchone()[0] == 3
 
 
 def test_append_resumes_without_reparsing(corpus) -> None:

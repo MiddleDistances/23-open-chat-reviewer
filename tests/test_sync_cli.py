@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from datetime import date
+
 from typer.testing import CliRunner
 
 import chatreview.cli as cli
 from chatreview.cli import app
-from chatreview.ingest import Ingestor
+from chatreview.ingest import Ingestor, IngestSummary
 from chatreview.providers import ClaudeAdapter, CodexAdapter
 
 
@@ -115,3 +117,73 @@ def test_sync_explains_gemini_export_fallback_when_no_documents(corpus, monkeypa
 
     assert result.exit_code == 0, result.output
     assert "export or supported API source is required" in result.output
+
+
+def test_sync_cli_passes_history_scope_and_reports_aggregate_sources(corpus, monkeypatch) -> None:
+    settings, _, _ = corpus
+    monkeypatch.setenv("CHATREVIEW_DATABASE_URL", settings.database_url)
+    monkeypatch.setenv("CHATREVIEW_MACHINE_ID", str(settings.machine_id))
+    monkeypatch.setenv("CHATREVIEW_MACHINE_NAME", settings.machine_name)
+    observed: dict[str, object] = {}
+
+    def fake_sync(_settings, **kwargs):
+        observed.update(kwargs)
+        return IngestSummary(
+            processed_files=3,
+            aggregate_files=2,
+            excluded_files=1,
+            mtime_bound_files=1,
+        )
+
+    monkeypatch.setattr(cli, "sync_sources", fake_sync)
+    result = CliRunner().invoke(
+        app,
+        [
+            "sync",
+            "--data-dir",
+            str(settings.data_dir),
+            "--codex-root",
+            str(settings.codex_root),
+            "--claude-root",
+            str(settings.claude_root),
+            "--gemini-root",
+            str(settings.gemini_root),
+            "--no-git",
+            "--history-since",
+            "2026-07-18",
+            "--history-until",
+            "2026-07-19",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert observed["history_since"] == date(2026, 7, 18)
+    assert observed["history_until"] == date(2026, 7, 19)
+    assert "1 sources excluded before persistence" in result.output
+    assert "2 aggregate history files retained" in result.output
+
+
+def test_sync_cli_rejects_reversed_history_scope(corpus, monkeypatch) -> None:
+    settings, _, _ = corpus
+    monkeypatch.setenv("CHATREVIEW_DATABASE_URL", settings.database_url)
+    monkeypatch.setenv("CHATREVIEW_MACHINE_ID", str(settings.machine_id))
+    monkeypatch.setattr(cli, "sync_sources", lambda *_args, **_kwargs: None)
+    result = CliRunner().invoke(
+        app,
+        [
+            "sync",
+            "--data-dir",
+            str(settings.data_dir),
+            "--codex-root",
+            str(settings.codex_root),
+            "--claude-root",
+            str(settings.claude_root),
+            "--history-since",
+            "2026-07-19",
+            "--history-until",
+            "2026-07-18",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "history-until must be on or after history-since" in result.output

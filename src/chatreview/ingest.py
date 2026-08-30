@@ -5,7 +5,7 @@ import time
 from collections.abc import Callable, Iterable
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from multiprocessing import get_context
 from pathlib import Path
 from typing import Any
@@ -18,6 +18,7 @@ from chatreview.config import Settings
 from chatreview.db import DatabaseError, Row, Session, close_pools, database
 from chatreview.providers.base import ProviderAdapter, stable_hash
 from chatreview.registry import apply_contributor_rules, rebuild_registry
+from chatreview.source_selection import HistoryScope, SourceSelectionPreview, preview_source_selection
 from chatreview.types import ParsedRecord, SourceSpec, TextFragment
 
 ProgressCallback = Callable[[str], None]
@@ -35,6 +36,11 @@ class IngestSummary:
     artifacts: int = 0
     parse_errors: int = 0
     bytes_read: int = 0
+    excluded_files: int = 0
+    exact_files: int = 0
+    mtime_bound_files: int = 0
+    aggregate_files: int = 0
+    unbounded_files: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -477,6 +483,8 @@ class Ingestor:
         force: bool = False,
         shard_index: int = 0,
         shard_count: int = 1,
+        history_since: date | str | None = None,
+        history_until: date | str | None = None,
     ) -> IngestSummary:
         return self._run_shard(
             providers=providers,
@@ -484,6 +492,8 @@ class Ingestor:
             shard_index=shard_index,
             shard_count=shard_count,
             finalize=True,
+            history_since=history_since,
+            history_until=history_until,
         )
 
     def _run_shard(
@@ -494,11 +504,19 @@ class Ingestor:
         shard_index: int,
         shard_count: int,
         finalize: bool,
+        history_since: date | str | None = None,
+        history_until: date | str | None = None,
     ) -> IngestSummary:
         if shard_count < 1 or not 0 <= shard_index < shard_count:
             raise ValueError("shard_index must be between zero and shard_count minus one")
         self.settings.ensure_output_dirs()
-        sources = self.discover(providers=providers)
+        scope = HistoryScope(history_since, history_until)
+        selection: SourceSelectionPreview | None = None
+        if scope.active:
+            selection = self.discover_selection(providers=providers, scope=scope)
+            sources = list(selection.included_sources)
+        else:
+            sources = self.discover(providers=providers)
         if shard_count > 1:
             sources = [
                 source
@@ -513,6 +531,12 @@ class Ingestor:
                 == shard_index
             ]
         summary = IngestSummary(discovered_files=len(sources))
+        if selection is not None:
+            summary.excluded_files = selection.excluded_files
+            summary.exact_files = selection.exact_files
+            summary.mtime_bound_files = selection.mtime_bound_files
+            summary.aggregate_files = selection.aggregate_files
+            summary.unbounded_files = selection.unbounded_files
         with database(self.settings.database_url) as connection:
             self._register_machine_and_contributor(connection)
             # Every worker registers the same machine and contributor. Release those
@@ -615,13 +639,32 @@ class Ingestor:
         rebuild_registry(connection)
         apply_contributor_rules(connection)
 
-    def discover(self, *, providers: set[str] | None = None) -> list[SourceSpec]:
+    def discover(
+        self,
+        *,
+        providers: set[str] | None = None,
+        history_since: date | str | None = None,
+        history_until: date | str | None = None,
+    ) -> list[SourceSpec]:
+        """Discover and optionally scope sources without opening their contents."""
+
+        scope = HistoryScope(history_since, history_until)
+        return list(self.discover_selection(providers=providers, scope=scope).included_sources)
+
+    def discover_selection(
+        self,
+        *,
+        providers: set[str] | None = None,
+        scope: HistoryScope | None = None,
+    ) -> SourceSelectionPreview:
+        """Return a read-only source selection preview for setup and sync callers."""
+
         sources: list[SourceSpec] = []
         for name, adapter in self.adapters.items():
             if providers and name not in providers:
                 continue
             sources.extend(adapter.discover())
-        return sorted(sources, key=lambda item: (item.provider, str(item.path)))
+        return preview_source_selection(sources, scope=scope or HistoryScope())
 
     def rebuild_from_archive(self) -> IngestSummary:
         """Regenerate parsed projections using only hash-verified PostgreSQL raw records."""
@@ -1695,14 +1738,27 @@ class Ingestor:
     def _prune_orphan_contents(self, connection: Session) -> None:
         connection.execute(
             """
-            DELETE FROM contents
-            WHERE id NOT IN (SELECT content_id FROM text_units)
-              AND id NOT IN (SELECT content_id FROM semantic_windows)
-              AND id NOT IN (SELECT goal_content_id FROM episodes WHERE goal_content_id IS NOT NULL)
-              AND id NOT IN (
-                  SELECT outcome_content_id FROM episodes WHERE outcome_content_id IS NOT NULL
-              )
-              AND id NOT IN (SELECT document_content_id FROM episodes)
+            DELETE FROM contents AS content
+            WHERE NOT EXISTS (
+                SELECT 1 FROM text_units AS unit
+                WHERE unit.content_id = content.id
+            )
+              AND NOT EXISTS (
+                SELECT 1 FROM semantic_windows AS semantic_window
+                WHERE semantic_window.content_id = content.id
+            )
+              AND NOT EXISTS (
+                SELECT 1 FROM episodes AS episode
+                WHERE episode.goal_content_id = content.id
+            )
+              AND NOT EXISTS (
+                SELECT 1 FROM episodes AS episode
+                WHERE episode.outcome_content_id = content.id
+            )
+              AND NOT EXISTS (
+                SELECT 1 FROM episodes AS episode
+                WHERE episode.document_content_id = content.id
+            )
             """
         )
 
@@ -1716,6 +1772,8 @@ class _WorkerRequest:
     progress_every: int
     shard_index: int
     shard_count: int
+    history_since: date | None
+    history_until: date | None
 
 
 def _configured_adapters(settings: Settings) -> list[ProviderAdapter]:
@@ -1766,6 +1824,8 @@ def _run_sync_worker(request: _WorkerRequest) -> IngestSummary:
             shard_index=request.shard_index,
             shard_count=request.shard_count,
             finalize=False,
+            history_since=request.history_since,
+            history_until=request.history_until,
         )
     finally:
         close_pools()
@@ -1783,6 +1843,11 @@ def _merge_summaries(summaries: Iterable[IngestSummary]) -> IngestSummary:
         merged.artifacts += summary.artifacts
         merged.parse_errors += summary.parse_errors
         merged.bytes_read += summary.bytes_read
+        merged.excluded_files = max(merged.excluded_files, summary.excluded_files)
+        merged.exact_files = max(merged.exact_files, summary.exact_files)
+        merged.mtime_bound_files = max(merged.mtime_bound_files, summary.mtime_bound_files)
+        merged.aggregate_files = max(merged.aggregate_files, summary.aggregate_files)
+        merged.unbounded_files = max(merged.unbounded_files, summary.unbounded_files)
     return merged
 
 
@@ -1796,6 +1861,8 @@ def sync_sources(
     workers: int = 1,
     shard_index: int = 0,
     shard_count: int = 1,
+    history_since: date | str | None = None,
+    history_until: date | str | None = None,
     progress: ProgressCallback | None = None,
 ) -> IngestSummary:
     """Synchronize sources, owning worker lifecycle and one global finalization pass."""
@@ -1804,6 +1871,7 @@ def sync_sources(
         raise ValueError("workers must be at least one")
     if workers > 1 and (shard_index != 0 or shard_count != 1):
         raise ValueError("workers cannot be combined with explicit shard options")
+    scope = HistoryScope(history_since, history_until)
     report = progress or (lambda _: None)
     adapters = _configured_adapters(settings)
     _prepare_selected_adapters(adapters, providers)
@@ -1818,6 +1886,8 @@ def sync_sources(
             force=force,
             shard_index=shard_index,
             shard_count=shard_count,
+            history_since=scope.since,
+            history_until=scope.until,
         )
 
     close_pools()
@@ -1830,6 +1900,8 @@ def sync_sources(
             progress_every=progress_every,
             shard_index=index,
             shard_count=workers,
+            history_since=scope.since,
+            history_until=scope.until,
         )
         for index in range(workers)
     ]

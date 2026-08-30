@@ -55,6 +55,7 @@ from chatreview.semantic import (
     SemanticSearchService,
     list_semantic_runs,
 )
+from chatreview.source_selection import HistoryScope
 from chatreview.summary_providers import SummaryProviderError, provider_from_environment
 from chatreview.timesheets import (
     TimesheetFilters,
@@ -448,6 +449,20 @@ def sync_command(
     workers: Annotated[int, typer.Option(min=1)] = 1,
     shard_index: Annotated[int, typer.Option(min=0)] = 0,
     shard_count: Annotated[int, typer.Option(min=1)] = 1,
+    history_since: Annotated[
+        str | None,
+        typer.Option(
+            "--history-since",
+            help="Include conversation sources from this UTC date (YYYY-MM-DD), inclusive.",
+        ),
+    ] = None,
+    history_until: Annotated[
+        str | None,
+        typer.Option(
+            "--history-until",
+            help="Include conversation sources through this UTC date (YYYY-MM-DD), inclusive.",
+        ),
+    ] = None,
 ) -> None:
     """Incrementally sync read-only source directories into PostgreSQL."""
 
@@ -457,6 +472,10 @@ def sync_command(
         raise typer.BadParameter("--shard-index must be less than --shard-count")
     if workers > 1 and (shard_index != 0 or shard_count != 1):
         raise typer.BadParameter("--workers cannot be combined with explicit shard options")
+    try:
+        history_scope = HistoryScope(history_since, history_until)
+    except (TypeError, ValueError) as exc:
+        raise typer.BadParameter(str(exc)) from exc
     if (providers is None or "gemini" in providers) and not GeminiAdapter(
         settings.gemini_root
     ).discover():
@@ -473,8 +492,18 @@ def sync_command(
         workers=workers,
         shard_index=shard_index,
         shard_count=shard_count,
+        history_since=history_scope.since,
+        history_until=history_scope.until,
         progress=typer.echo,
     )
+    if history_scope.active:
+        typer.echo(
+            "History scope: "
+            f"{history_scope.since or 'earliest'} through {history_scope.until or 'latest'}; "
+            f"{summary.excluded_files:,} sources excluded before persistence; "
+            f"{summary.aggregate_files:,} aggregate history files retained; "
+            f"{summary.mtime_bound_files:,} sources selected/bounded by UTC mtime."
+        )
     typer.echo(
         "Sync complete: "
         f"{summary.processed_files:,} processed, {summary.skipped_files:,} unchanged, "
