@@ -123,6 +123,8 @@ export interface SetupPageProps {
   onSelectMachine?: (machineId: string) => void;
   onOpenInstructions?: () => void;
   onSelectStep?: (step: SetupStep) => void;
+  /** Optional machine-local summary-agent controls owned by the API route. */
+  summaryAgent?: ReactNode;
 }
 
 export const DEFAULT_SETUP_CONFIG: SetupConfig = {
@@ -169,6 +171,7 @@ export default function SetupPage({
   onSelectMachine,
   onOpenInstructions,
   onSelectStep,
+  summaryAgent,
 }: SetupPageProps) {
   const [config, setConfig] = useState<SetupConfig>(() => ({ ...DEFAULT_SETUP_CONFIG, ...initialConfig }));
   const [activeStep, setActiveStep] = useState<SetupStep>("machines");
@@ -251,6 +254,8 @@ export default function SetupPage({
           <span>{scopeLabel(config)}</span>
         </div>
       </section>
+
+      {summaryAgent}
 
       <nav className="setup-step-cards" aria-label="Archive setup steps">
         {STEP_DETAILS.map(({ id, number, label, description, icon: Icon }) => (

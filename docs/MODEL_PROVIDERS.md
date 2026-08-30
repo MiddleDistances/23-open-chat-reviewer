@@ -4,6 +4,43 @@ Summary cards are optional. The archive and all deterministic review features wo
 without a model. When enabled, a provider receives only a bounded, prompt-injection-aware
 evidence packet and must return a JSON object that passes the `ResumeDraft` schema.
 
+The **Setup & storage** page detects supported local coding-agent CLIs and can run a
+bounded summary batch. It saves only the selected provider id in
+`.chatreview/summary-agent.json`; credentials remain owned by the CLI.
+
+## Existing coding-agent login or subscription
+
+Open Chat Reviewer can invoke these fixed local adapters:
+
+| Setup choice | Provider value | Login command |
+| --- | --- | --- |
+| Codex CLI | `codex-cli` | `codex login` |
+| Claude Code | `claude-cli` | `claude auth login` |
+| Gemini CLI | `gemini-cli` | `gemini auth login` |
+
+For example, after signing into Codex normally:
+
+```bash
+codex login status
+export CHATREVIEW_SUMMARY_PROVIDER=codex-cli
+export CHATREVIEW_ENABLE_SUMMARIES=1
+uv run open-chat-reviewer resume refresh --days 30 --limit 40
+```
+
+`CHATREVIEW_SUMMARY_MODEL` is optional for CLI adapters; omitting it uses the CLI's
+normal account default. Codex supports ChatGPT sign-in for subscription access as well
+as API-key login, and its documented non-interactive `codex exec` mode accepts prompts
+on standard input and JSON Schema output. See the official
+[Codex authentication](https://developers.openai.com/codex/auth/) and
+[non-interactive mode](https://developers.openai.com/codex/noninteractive/) documentation.
+
+The browser cannot submit an executable, shell command, argument list, or credential.
+Each adapter uses fixed non-interactive arguments, sends the evidence packet over stdin,
+runs in an empty mode-`0700` temporary directory, disables tools for Claude, and selects
+read-only sandbox/plan modes for Codex and Gemini. Open Chat Reviewer invokes the CLI;
+it never opens or copies that CLI's token files. Account rate limits and subscription
+terms still apply.
+
 ## Local Qwen (recommended)
 
 Serve a Qwen instruct model with an OpenAI-compatible local server such as vLLM,
@@ -18,6 +55,11 @@ export CHATREVIEW_SUMMARY_BASE_URL=http://127.0.0.1:8000/v1
 The exact model is a deployment choice. Use a smaller instruct model when memory is
 limited. Open Chat Reviewer does not start, stop, or assume ownership of your model
 server.
+
+If a thinking-capable Qwen gateway spends the entire structured-output budget without
+returning visible JSON, add `CHATREVIEW_SUMMARY_DISABLE_THINKING=1`. The adapter then
+sends `chat_template_kwargs.enable_thinking=false` for summary requests; this affects
+generation only and does not alter archived reasoning-retention choices.
 
 ## Hosted OpenAI-compatible services
 
@@ -71,9 +113,9 @@ export CHATREVIEW_SUMMARY_BASE_URL=https://api.openai.com/v1
 export CHATREVIEW_SUMMARY_API_KEY=replace-me
 ```
 
-The adapter sends `store: false` and requests a strict structured output. API keys and
-model access are separate from a ChatGPT or coding-agent login; this project never reads
-tokens from Codex or another source application. Confirm the model name using the
+The adapter sends `store: false` and requests a strict structured output. Direct API keys
+and model access are separate from a ChatGPT or coding-agent login; choose `codex-cli`
+instead when you intend to reuse Codex's existing login. Confirm the model name using the
 [OpenAI models API](https://platform.openai.com/docs/api-reference/models).
 
 ## Anthropic

@@ -57,6 +57,7 @@ from chatreview.semantic import (
     list_semantic_runs,
 )
 from chatreview.source_selection import HistoryScope
+from chatreview.summary_jobs import selected_provider_kind
 from chatreview.summary_providers import SummaryProviderError, provider_from_environment
 from chatreview.timesheets import (
     TimesheetFilters,
@@ -574,9 +575,10 @@ def resume_refresh_command(
     try:
         model_adapter = ProviderResumeModel(
             provider_from_environment(
-                provider=provider,
+                provider=provider or selected_provider_kind(settings.data_dir),
                 model_name=model,
                 base_url=base_url,
+                runtime_root=settings.data_dir / "cli-runs",
             )
         )
         summary = ResumeSurfaceRefresher(

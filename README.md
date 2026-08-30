@@ -7,7 +7,8 @@ episodes, and presents the result in a local web interface.
 
 Git activity and overlap-aware workload calendars are included as an enabled-by-default
 module. Evidence-bounded resume cards are optional and work with a local Qwen model,
-hosted model gateways, Anthropic, or a small custom provider plugin.
+the user's existing Codex/Claude/Gemini CLI login, hosted model gateways, Anthropic, or
+a small custom provider plugin.
 
 The recommended topology is one Tailscale-only central archive with small writer agents
 on each computer. Every writer scans its local read-only chat directories into the same
@@ -24,6 +25,8 @@ without copying raw archive files between them.
 - PostgreSQL full-text search and optional pgvector semantic search.
 - Deterministic goal/attempt/result episodes, session traces, annotations, and exports.
 - Optional evidence-bounded summaries with fingerprint reuse for unchanged sessions.
+- Setup-page summary controls that safely reuse supported coding-agent CLI subscriptions
+  without copying their credentials into the application.
 - Git-backed project history plus workload/timesheet calendars that avoid double-counting
   parallel chats for the same project.
 - A FastAPI backend, responsive React UI, unattended worker, and Linux/macOS service

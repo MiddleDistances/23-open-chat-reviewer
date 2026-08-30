@@ -16,6 +16,7 @@ from chatreview.db import database, migrate
 from chatreview.episodes import EpisodeBuilder
 from chatreview.ingest import sync_sources
 from chatreview.resume import ProviderResumeModel, ResumeSurfaceRefresher
+from chatreview.summary_jobs import selected_provider_kind
 from chatreview.summary_providers import provider_from_environment
 from chatreview.timesheets import build_timesheet
 
@@ -78,7 +79,10 @@ def run_cycle(
             summaries = _env_bool("CHATREVIEW_ENABLE_SUMMARIES", default=False)
         resume_summary = None
         if summaries:
-            provider = provider_from_environment()
+            provider = provider_from_environment(
+                provider=selected_provider_kind(settings.data_dir),
+                runtime_root=settings.data_dir / "cli-runs",
+            )
             resume_summary = ResumeSurfaceRefresher(
                 settings.database_url,
                 ProviderResumeModel(provider),

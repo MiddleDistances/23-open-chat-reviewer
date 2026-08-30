@@ -6,6 +6,10 @@ import SetupPage, {
   type SetupMachine,
   type SetupProgress,
 } from "./SetupPage";
+import SummaryAgentPanel, {
+  type SummaryAgentId,
+  type SummaryAgentStatus,
+} from "./SummaryAgentPanel";
 
 interface SetupStatusResponse {
   generated_at: string;
@@ -95,6 +99,12 @@ export default function SetupRoute() {
   const { data: progress, setData: setProgress } =
     useApi<SetupProgress>("/api/setup/build");
   const [preview, setPreview] = useState<SetupPreviewResponse | null>(null);
+  const {
+    data: summaryAgent,
+    loading: summaryAgentLoading,
+    error: summaryAgentError,
+    refresh: refreshSummaryAgent,
+  } = useApi<SummaryAgentStatus>("/api/summary-agent");
 
   useEffect(() => {
     if (
@@ -112,6 +122,12 @@ export default function SetupRoute() {
     }, 3_000);
     return () => window.clearInterval(timer);
   }, [progress?.status, refreshStatus]);
+
+  useEffect(() => {
+    if (!summaryAgent?.run.active) return;
+    const timer = window.setInterval(refreshSummaryAgent, 3_000);
+    return () => window.clearInterval(timer);
+  }, [summaryAgent?.run.active, refreshSummaryAgent]);
 
   const machines = useMemo<SetupMachine[]>(() => {
     if (preview?.machines.length) {
@@ -185,6 +201,18 @@ export default function SetupRoute() {
     setProgress(next);
   }
 
+  async function runSummaries(provider: SummaryAgentId, days: number) {
+    await api("/api/summary-agent", {
+      method: "PUT",
+      body: JSON.stringify({ provider }),
+    });
+    await api("/api/summary-agent/run", {
+      method: "POST",
+      body: JSON.stringify({ provider, days, limit: 40, per_project_limit: 3 }),
+    });
+    refreshSummaryAgent();
+  }
+
   return (
     <SetupPage
       machines={machines}
@@ -200,6 +228,14 @@ export default function SetupRoute() {
           "_blank",
           "noopener,noreferrer",
         )
+      }
+      summaryAgent={
+        <SummaryAgentPanel
+          status={summaryAgent}
+          loading={summaryAgentLoading}
+          error={summaryAgentError}
+          onRun={runSummaries}
+        />
       }
     />
   );

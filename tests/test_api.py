@@ -58,7 +58,7 @@ def test_api_search_transcript_and_annotations(corpus) -> None:
     assert raw.json()["valid"] is True
 
 
-def test_setup_preview_and_map_date_validation(corpus) -> None:
+def test_setup_preview_and_map_date_validation(corpus, monkeypatch) -> None:
     settings, _, _ = corpus
     Ingestor(
         settings,
@@ -113,6 +113,26 @@ def test_setup_preview_and_map_date_validation(corpus) -> None:
     assert hidden_reasoning.status_code == 200
     assert hidden_reasoning.json()["lexical"] == []
     assert included_reasoning.json()["lexical"]
+
+    monkeypatch.setattr(
+        "chatreview.api.summary_agent_catalog",
+        lambda: [
+            {
+                "id": "codex-cli",
+                "label": "Codex CLI",
+                "installed": True,
+                "authenticated": True,
+                "detail": "Ready",
+            }
+        ],
+    )
+    selected = client.put("/api/summary-agent", json={"provider": "codex-cli"})
+    summary_agent = client.get("/api/summary-agent")
+    assert selected.status_code == 200
+    assert summary_agent.status_code == 200
+    assert summary_agent.json()["selected"] == "codex-cli"
+    assert summary_agent.json()["providers"][0]["authenticated"] is True
+    assert "executable" not in repr(summary_agent.json()).lower()
 
 
 def test_work_archive_registry_trail_timesheets_and_status(corpus) -> None:

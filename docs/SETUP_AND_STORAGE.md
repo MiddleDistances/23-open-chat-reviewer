@@ -5,6 +5,20 @@ database is the archive authority; the source folders on each computer remain
 read-only inputs. Use this page alongside [Sync and worker operations](SYNC_OPERATIONS.md)
 and [Tailscale central archive and remote writers](TAILSCALE_MULTI_MACHINE.md).
 
+## Choose a summary agent
+
+The Setup & storage screen contains a machine-local **Focus summaries** control. It can
+use a configured local Qwen endpoint or a detected Codex, Claude, or Gemini CLI. CLI
+choices reuse the login already active for the operating-system user running the web
+service; the GUI does not ask for or display a token. Select a bounded history window
+and choose **Save and run summaries**. Progress is recorded in the ignored
+`.chatreview/summary-run.json` file.
+
+Only fixed adapters are available. A free-form command field is deliberately excluded
+because the setup page may be reachable from another tailnet machine and arbitrary CLI
+arguments would be equivalent to remote command execution. For unattended refreshes,
+enable `CHATREVIEW_ENABLE_SUMMARIES=1`; the worker honors the saved GUI selection.
+
 ## Choose the topology
 
 There are two supported roles:

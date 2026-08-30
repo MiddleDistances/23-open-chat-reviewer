@@ -62,6 +62,15 @@ from chatreview.setup_planner import (
     SetupPlan,
     SetupPlanner,
 )
+from chatreview.summary_jobs import (
+    SummaryAgentId,
+    SummaryJobAlreadyRunning,
+    SummaryRunManager,
+    SummaryRunPlan,
+    load_summary_agent,
+    save_summary_agent,
+    summary_agent_catalog,
+)
 from chatreview.timesheets import (
     TimesheetFilters,
     build_timesheet,
@@ -153,6 +162,16 @@ class SetupPreviewInput(BaseModel):
     include_reasoning_in_projection: bool = False
 
 
+class SummaryAgentInput(BaseModel):
+    provider: SummaryAgentId
+
+
+class SummaryRunInput(SummaryAgentInput):
+    days: int = Field(default=30, ge=1, le=365)
+    limit: int = Field(default=40, ge=1, le=100)
+    per_project_limit: int = Field(default=3, ge=1, le=10)
+
+
 def create_app(settings: Settings) -> FastAPI:
     settings.ensure_output_dirs()
     migrate(settings.database_url)
@@ -164,6 +183,7 @@ def create_app(settings: Settings) -> FastAPI:
     semantic = SemanticSearchService(settings)
     setup = SetupPlanner(settings)
     setup_builds = SetupBuildManager(settings)
+    summary_runs = SummaryRunManager(settings)
 
     def public_build_status() -> dict[str, Any]:
         status = setup_builds.status().to_dict()
@@ -256,6 +276,36 @@ def create_app(settings: Settings) -> FastAPI:
     def cancel_setup_build() -> dict[str, Any]:
         setup_builds.cancel()
         return public_build_status()
+
+    @app.get("/api/summary-agent")
+    def summary_agent_status() -> dict[str, Any]:
+        with database(settings.database_url, read_only=True) as connection:
+            latest = list_resume_surfaces(connection, limit=1).get("latest_run")
+        return {
+            "selected": load_summary_agent(settings.data_dir),
+            "providers": summary_agent_catalog(),
+            "run": summary_runs.status(),
+            "latest_run": latest,
+        }
+
+    @app.put("/api/summary-agent")
+    def select_summary_agent(payload: SummaryAgentInput) -> dict[str, Any]:
+        save_summary_agent(settings.data_dir, payload.provider)
+        return {"selected": payload.provider}
+
+    @app.post("/api/summary-agent/run", status_code=202)
+    def start_summary_run(payload: SummaryRunInput) -> dict[str, Any]:
+        try:
+            return summary_runs.start(
+                SummaryRunPlan(
+                    provider=payload.provider,
+                    days=payload.days,
+                    limit=payload.limit,
+                    per_project_limit=payload.per_project_limit,
+                )
+            )
+        except SummaryJobAlreadyRunning as exc:
+            raise HTTPException(409, str(exc)) from exc
 
     @app.get("/api/stats")
     def stats() -> dict[str, Any]:
