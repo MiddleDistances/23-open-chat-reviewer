@@ -320,7 +320,7 @@ export default function SetupPage({
         </div>
       </section>
 
-      <ConnectionOverview connection={connection} machineCount={machines.length} />
+      <ConnectionOverview connection={connection} machines={machines} />
 
       {summaryAgent}
 

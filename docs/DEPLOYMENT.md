@@ -50,6 +50,13 @@ Do not point two schema variants at the same PostgreSQL database merely because 
 tables look similar. Migration names and checksums are the compatibility contract. Use a
 separate database and run the resumable source sync when the contracts differ.
 
+One predecessor archive fingerprint is supported explicitly. For that exact fingerprint,
+migration `0014_legacy_activity_compatibility.sql` creates an automatically updatable
+`activities` view over the predecessor's `rd_activities` table. It does not copy or rewrite
+archive rows, and all other checksum mismatches remain fatal. Take a schema backup and run
+`db doctor` followed by `db migrate` before pointing the web process at an established
+database.
+
 ## Background services
 
 Linux user services:
@@ -77,6 +84,9 @@ Set `CHATREVIEW_DATABASE_URL` to a PostgreSQL 17-compatible server with permissi
 create the `vector` and `pg_trgm` extensions during initial migration. Use TLS and a
 dedicated database/user. Database URLs belong only in `.chatreview/archive.env` or your
 service manager's secret store.
+
+The web process may load an existing ignored environment file directly through
+`CHATREVIEW_ENV_FILE`; credentials do not need to be duplicated into this checkout.
 
 ## Upgrade
 

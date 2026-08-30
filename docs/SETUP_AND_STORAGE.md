@@ -38,6 +38,11 @@ follow the writer guide on that computer, run its first sync, then choose **Chec
 archive**. The machine is discovered from its PostgreSQL registration. Setup-button
 behavior and feedback identifiers are documented in [UI action and feedback rules](UI_ACTIONS.md).
 
+The topology diagram uses those registered machine names at runtime: it labels the
+current database host as central and the remaining registered machines as writers. The
+repository contains only generic fallback labels, so deployment-specific computer names
+are neither hardcoded nor published in source control.
+
 For a single-computer archive, use the central role with a loopback bind. For multiple
 computers, put PostgreSQL, the web process, and the derived worker on the central node
 and connect writer nodes over a private Tailscale network. The web process has no

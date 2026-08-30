@@ -26,9 +26,9 @@ const response = {
         {
           session_id: 41,
           provider: "codex",
-          cwd: "/Users/michael/Projects/23-chatReviewer",
+          cwd: "/Users/example/Projects/open-chat-reviewer",
           active_at: "2026-08-28T12:53:13Z",
-          machine_name: "Michael's MacBook Pro",
+          machine_name: "Studio laptop",
           project_name: "23-chatReviewer",
           repository_url: "https://github.com/example/open-chat-reviewer",
         },
@@ -90,8 +90,8 @@ describe("resume dashboard", () => {
 
     expect(await screen.findByText("Finish the active archive synchronization")).toBeInTheDocument();
     expect(screen.queryByText("Completed evidence migration")).not.toBeInTheDocument();
-    expect(screen.getByText("Michael's MacBook Pro")).toBeInTheDocument();
-    expect(screen.getByText("/Users/michael/Projects/23-chatReviewer")).toBeInTheDocument();
+    expect(screen.getByText("Studio laptop")).toBeInTheDocument();
+    expect(screen.getByText("/Users/example/Projects/open-chat-reviewer")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /open evidence/i })).toHaveAttribute("href", "/trace/41");
 
     fireEvent.click(screen.getByRole("button", { name: /done 1/i }));
@@ -126,7 +126,7 @@ describe("resume dashboard", () => {
             provider: "codex",
             external_id: "01a050f3",
             project: "23-chatReviewer",
-            cwd: "/home/michael/Documents/23-chatReviewer",
+            cwd: "/home/example/Documents/open-chat-reviewer",
             started_at: "2026-08-30T04:35:27Z",
             ended_at: "2026-08-30T05:16:54Z",
             title: null,

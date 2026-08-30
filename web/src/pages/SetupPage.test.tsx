@@ -12,8 +12,8 @@ const machine: SetupMachine = {
   status: "current",
   platform: "Linux",
   sourceRoots: [
-    { provider: "codex", path: "/home/michael/.codex", recordCount: 24 },
-    { provider: "claude", path: "/home/michael/.claude", recordCount: 8 },
+    { provider: "codex", path: "/home/example/.codex", recordCount: 24 },
+    { provider: "claude", path: "/home/example/.claude", recordCount: 8 },
   ],
   eventCount: 42,
   lastSeenAt: "2026-08-30T09:00:00Z",
@@ -53,7 +53,7 @@ describe("archive setup page", () => {
     render(<SetupPage machines={[machine]} estimate={estimate} connection={connection} />);
 
     expect(screen.getByRole("heading", { name: /make every machine part/i })).toBeInTheDocument();
-    expect(screen.getAllByText("Linux box")).toHaveLength(2);
+    expect(screen.getAllByText("Linux box")).toHaveLength(3);
     expect(screen.getByText("1.9 MiB")).toBeInTheDocument();
     expect(screen.getByRole("checkbox", { name: /preserve encrypted raw reasoning/i })).toBeChecked();
     expect(screen.getByRole("checkbox", { name: /include readable reasoning in text search/i })).not.toBeChecked();

@@ -15,9 +15,22 @@ from psycopg.rows import dict_row
 from psycopg.sql import SQL, Identifier
 from psycopg_pool import ConnectionPool
 
-SCHEMA_VERSION = 11
+SCHEMA_VERSION = 14
 MIGRATION_LOCK_ID = 0x43485256574D4947  # "CHR VWMIG", stable across processes.
 MIGRATIONS_DIR = Path(__file__).with_name("migrations")
+LEGACY_MIGRATION_CHECKSUMS = {
+    (
+        1,
+        "0001_postgresql_archive.sql",
+    ): frozenset(
+        {
+            # The private predecessor archive used rd_activities and retained
+            # additional R&D tables. Migration 0014 provides the only alias the
+            # open-source read/query surface needs without rewriting that history.
+            "f7abb72c1878dc702ce80f2febef40cf897cbff08bb938f0b5e8e8c76575e740"
+        }
+    )
+}
 SEARCH_INDEXES = {
     "sources_path_trgm_idx": (
         "CREATE INDEX CONCURRENTLY IF NOT EXISTS sources_path_trgm_idx "
@@ -313,7 +326,14 @@ def migrate(database_url: str) -> list[str]:
                     (version,),
                 ).fetchone()
                 if row is not None:
-                    if row["name"] != path.name or row["checksum"] != checksum:
+                    exact_match = row["name"] == path.name and row["checksum"] == checksum
+                    legacy_match = _legacy_migration_is_compatible(
+                        connection,
+                        version=version,
+                        name=str(row["name"]),
+                        checksum=str(row["checksum"]),
+                    )
+                    if not exact_match and not legacy_match:
                         raise DatabaseError(f"migration {version} differs from the already-applied migration")
                     continue
                 connection.execute(sql)
@@ -339,6 +359,51 @@ def migrate(database_url: str) -> list[str]:
     # Connections created before CREATE EXTENSION need pgvector adapters registered.
     close_pools()
     return applied_now
+
+
+def _legacy_migration_is_compatible(
+    connection: psycopg.Connection[dict[str, Any]],
+    *,
+    version: int,
+    name: str,
+    checksum: str,
+) -> bool:
+    """Accept only a known predecessor fingerprint with its expected relation shape."""
+
+    accepted = LEGACY_MIGRATION_CHECKSUMS.get((version, name), frozenset())
+    if checksum not in accepted:
+        return False
+    signature = connection.execute(
+        """
+        SELECT to_regclass('machines') IS NOT NULL AS machines,
+               to_regclass('sessions') IS NOT NULL AS sessions,
+               to_regclass('rd_activities') IS NOT NULL AS legacy_activities,
+               activity.relkind AS activities_kind,
+               CASE
+                   WHEN activity.relkind='v' THEN pg_get_viewdef(activity.oid)
+                   ELSE NULL
+               END AS activities_definition
+        FROM (VALUES (1)) AS sentinel(value)
+        LEFT JOIN pg_class activity ON activity.oid=to_regclass('activities')
+        """
+    ).fetchone()
+    activities_compatible = bool(
+        signature
+        and (
+            signature["activities_kind"] is None
+            or (
+                signature["activities_kind"] == "v"
+                and "rd_activities" in (signature["activities_definition"] or "")
+            )
+        )
+    )
+    return bool(
+        signature
+        and signature["machines"]
+        and signature["sessions"]
+        and signature["legacy_activities"]
+        and activities_compatible
+    )
 
 
 def doctor(database_url: str) -> DoctorReport:

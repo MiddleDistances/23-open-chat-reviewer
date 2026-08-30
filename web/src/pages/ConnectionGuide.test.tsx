@@ -28,11 +28,23 @@ const localOnly: SetupConnection = {
 
 describe("multi-machine connection guide", () => {
   it("draws the architecture and does not invent a remote database address", () => {
-    render(<ConnectionOverview connection={localOnly} machineCount={1} />);
+    render(
+      <ConnectionOverview
+        connection={localOnly}
+        machines={[
+          { id: "central", name: "Central host" },
+          { id: "studio", name: "Studio laptop" },
+          { id: "workshop", name: "Workshop PC" },
+        ]}
+      />,
+    );
 
     expect(screen.getAllByRole("img", { name: /multi-machine architecture/i })).toHaveLength(2);
-    expect(screen.getAllByText("Mac mini")).toHaveLength(2);
-    expect(screen.queryByText("Central host")).not.toBeInTheDocument();
+    expect(screen.getAllByText("Central host")).toHaveLength(2);
+    expect(screen.getAllByText("Studio laptop")).toHaveLength(1);
+    expect(screen.getAllByText("Workshop PC")).toHaveLength(1);
+    expect(screen.getByText("Studio laptop · Workshop PC")).toBeInTheDocument();
+    expect(screen.getByText(/3 registered machines/i)).toBeInTheDocument();
     expect(screen.getByText("http://central.example.ts.net:8766")).toBeInTheDocument();
     expect(screen.getByText("127.0.0.1:54329")).toBeInTheDocument();
     expect(screen.getByText(/writers cannot connect yet/i)).toBeInTheDocument();
@@ -53,12 +65,12 @@ describe("multi-machine connection guide", () => {
     );
 
     fireEvent.change(screen.getByLabelText(/name this computer/i), {
-      target: { value: "Michaels MacBook" },
+      target: { value: "Studio Laptop" },
     });
     fireEvent.click(screen.getByRole("button", { name: "macOS" }));
 
     expect(screen.getByText(/brew install flock/i)).toBeInTheDocument();
-    expect(screen.getByText(/writer install ~\/Downloads\/michaels-macbook.env/i)).toBeInTheDocument();
+    expect(screen.getByText(/writer install ~\/Downloads\/studio-laptop.env/i)).toBeInTheDocument();
     expect(screen.getByRole("alert")).toHaveTextContent(/postgresql is currently local-only/i);
     expect(document.body.textContent).not.toMatch(/postgres(?:ql)?:\/\//i);
   });

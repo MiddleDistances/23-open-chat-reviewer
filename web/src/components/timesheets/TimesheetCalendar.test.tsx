@@ -105,7 +105,7 @@ describe("TimesheetCalendar helpers", () => {
   it("shows mixed Git, AI chat, and source-device symbols", () => {
     const machines = [
       { machine_id: "machine-a", machine_name: "workstation-alpha" },
-      { machine_id: "mac", machine_name: "Michael's MacBook" },
+      { machine_id: "laptop", machine_name: "Studio laptop" },
     ];
     render(
       <RepositoryEvidenceSymbols
@@ -118,7 +118,7 @@ describe("TimesheetCalendar helpers", () => {
     expect(screen.getByLabelText("Git commits and local Git operations")).toBeInTheDocument();
     expect(screen.getByLabelText("AI chat activity: Codex, Gemini")).toBeInTheDocument();
     expect(screen.getByLabelText("Source device: workstation-alpha")).toBeInTheDocument();
-    expect(screen.getByLabelText("Source device: Michael's MacBook")).toBeInTheDocument();
+    expect(screen.getByLabelText("Source device: Studio laptop")).toBeInTheDocument();
   });
 
   it("computes a timestamp union only after the repository selection is applied", async () => {
