@@ -23,6 +23,13 @@ if [[ -f "$ENV_FILE" ]]; then
     set +a
 fi
 
+# A GUI setup build may deliberately override the persisted retention policy for
+# this one run. The override contains only the enum value preserve/redact, never
+# credentials, and is not written back to archive.env.
+if [[ -n "${CHATREVIEW_RAW_REASONING_RETENTION_OVERRIDE:-}" ]]; then
+    export CHATREVIEW_RAW_REASONING_RETENTION="$CHATREVIEW_RAW_REASONING_RETENTION_OVERRIDE"
+fi
+
 : "${CHATREVIEW_DATABASE_URL:?CHATREVIEW_DATABASE_URL is required (set it or provide CHATREVIEW_ENV_FILE)}"
 : "${CHATREVIEW_MACHINE_ID:?CHATREVIEW_MACHINE_ID is required (set it or provide CHATREVIEW_ENV_FILE)}"
 

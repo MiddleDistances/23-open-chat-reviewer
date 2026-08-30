@@ -18,6 +18,7 @@ from chatreview.config import Settings
 from chatreview.db import DatabaseError, Row, Session, close_pools, database
 from chatreview.providers.base import ProviderAdapter, stable_hash
 from chatreview.registry import apply_contributor_rules, rebuild_registry
+from chatreview.retention import RawRetentionPolicy
 from chatreview.source_selection import HistoryScope, SourceSelectionPreview, preview_source_selection
 from chatreview.types import ParsedRecord, SourceSpec, TextFragment
 
@@ -471,6 +472,7 @@ class Ingestor:
         self.adapters = {adapter.name: adapter for adapter in adapters}
         self.batch_lines = batch_lines
         self.progress = progress or (lambda _: None)
+        self._raw_retention = RawRetentionPolicy(settings.raw_reasoning_retention)
         self._session_cache: dict[str, SessionCacheEntry] = {}
         self._content_cache: dict[str, int] = {}
         self._batch_content_cache: dict[str, int] = {}
@@ -664,7 +666,24 @@ class Ingestor:
             if providers and name not in providers:
                 continue
             sources.extend(adapter.discover())
+        if self.settings.raw_reasoning_retention != "preserve":
+            sources = [self._source_with_retention_provenance(source) for source in sources]
         return preview_source_selection(sources, scope=scope or HistoryScope())
+
+    def _source_with_retention_provenance(self, source: SourceSpec) -> SourceSpec:
+        """Make a changed raw-retention choice produce a distinct source revision."""
+
+        if source.provider != "codex":
+            return source
+        return SourceSpec(
+            provider=source.provider,
+            path=source.path,
+            source_kind=source.source_kind,
+            provenance={
+                **source.provenance,
+                "raw_reasoning_retention": self.settings.raw_reasoning_retention,
+            },
+        )
 
     def rebuild_from_archive(self) -> IngestSummary:
         """Regenerate parsed projections using only hash-verified PostgreSQL raw records."""
@@ -1163,6 +1182,7 @@ class Ingestor:
         batch: list[RawLine],
         result: dict[str, int | bool],
     ) -> int:
+        batch = self._apply_raw_retention(source, batch)
         raw_ids = self._archive_raw_batch(connection, revision_id=revision_id, batch=batch)
         self._batch_content_cache.clear()
         errors = 0
@@ -1192,6 +1212,44 @@ class Ingestor:
         result["parse_errors"] = int(result["parse_errors"]) + counts.parse_errors
         self._canonicalize_raw_records(connection, raw_ids.values())
         return errors
+
+    def _apply_raw_retention(
+        self,
+        source: SourceSpec,
+        batch: list[RawLine],
+    ) -> list[RawLine]:
+        """Return the exact or explicitly redacted bytes stored for a source batch.
+
+        Redaction is limited to Codex reasoning records and happens before raw
+        persistence. Source byte offsets and revision checkpoints still refer to the
+        read-only input file; the stored payload hash and byte length describe the
+        retained representation used for deterministic replay.
+        """
+
+        if source.provider != "codex" or self._raw_retention.mode == "preserve":
+            return batch
+        retained: list[RawLine] = []
+        for item in batch:
+            try:
+                decoded = orjson.loads(item.payload)
+            except orjson.JSONDecodeError:
+                retained.append(item)
+                continue
+            result = self._raw_retention.apply(decoded)
+            if result.redacted_records == 0:
+                retained.append(item)
+                continue
+            ending = b"\n" if item.payload.endswith(b"\n") else b""
+            payload = orjson.dumps(result.value, option=orjson.OPT_SORT_KEYS) + ending
+            retained.append(
+                RawLine(
+                    line_no=item.line_no,
+                    byte_offset=item.byte_offset,
+                    payload=payload,
+                    payload_hash=stable_hash(payload),
+                )
+            )
+        return retained
 
     def _preload_batch_projections(
         self, connection: Session, parsed_records: list[ParsedRecord]

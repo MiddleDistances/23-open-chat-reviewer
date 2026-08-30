@@ -7,8 +7,10 @@ import {
   FileCode2,
   FolderKanban,
   GitCompareArrows,
+  Map,
   Menu,
   Search,
+  Settings2,
   Tags,
   Waypoints,
   X,
@@ -22,9 +24,11 @@ const DashboardPage = lazy(() => import("./pages/DashboardPage"));
 const EpisodesPage = lazy(() => import("./pages/EpisodesPage"));
 const ReviewPage = lazy(() => import("./pages/ReviewPage"));
 const SearchPage = lazy(() => import("./pages/SearchPage"));
+const SetupPage = lazy(() => import("./pages/SetupRoute"));
 const SessionsPage = lazy(() => import("./pages/SessionsPage"));
 const TracePage = lazy(() => import("./pages/TracePage"));
 const WorkArchivePage = lazy(() => import("./pages/WorkArchivePage"));
+const MapPage = lazy(() => import("./pages/MapPage"));
 
 const navigation = [
   {
@@ -40,6 +44,7 @@ const navigation = [
     label: "Explore",
     items: [
       { to: "/search", label: "Search", icon: Search },
+      { to: "/map", label: "Semantic map", icon: Map },
       { to: "/sessions", label: "Sessions", icon: Boxes },
       { to: "/artifacts", label: "Code evidence", icon: FileCode2 },
     ],
@@ -52,6 +57,10 @@ const navigation = [
       { to: "/timesheets", label: "Workload calendar", icon: CalendarClock },
       { to: "/archive-status", label: "Archive status", icon: Archive },
     ],
+  },
+  {
+    label: "System",
+    items: [{ to: "/setup", label: "Setup & storage", icon: Settings2 }],
   },
 ];
 
@@ -108,6 +117,8 @@ export default function App() {
           <Routes>
             <Route path="/" element={<DashboardPage />} />
             <Route path="/search" element={<SearchPage />} />
+            <Route path="/map" element={<MapPage />} />
+            <Route path="/setup" element={<SetupPage />} />
             <Route path="/trace" element={<TracePage />} />
             <Route path="/trace/:sessionId" element={<TracePage />} />
             <Route path="/sessions" element={<SessionsPage />} />

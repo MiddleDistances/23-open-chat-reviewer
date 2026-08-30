@@ -52,6 +52,7 @@ from chatreview.semantic import (
     DEFAULT_MODEL_REVISION,
     DeriveOptions,
     SemanticDeriver,
+    SemanticPolicy,
     SemanticSearchService,
     list_semantic_runs,
 )
@@ -622,12 +623,52 @@ def semantic_refresh_command(
     overlap_events: Annotated[int, typer.Option(min=0, max=20)] = 1,
     batch_size: Annotated[int, typer.Option(min=1, max=1024)] = 16,
     device: Annotated[str | None, typer.Option()] = None,
+    include_reasoning: Annotated[
+        bool,
+        typer.Option("--reasoning/--no-reasoning", help="Include readable reasoning text."),
+    ] = True,
+    include_reasoning_summaries: Annotated[
+        bool,
+        typer.Option(
+            "--reasoning-summaries/--no-reasoning-summaries",
+            help="Include provider reasoning-summary text.",
+        ),
+    ] = False,
+    include_tool_content: Annotated[
+        bool,
+        typer.Option("--tool-content/--no-tool-content", help="Include tool inputs and outputs."),
+    ] = False,
+    include_context: Annotated[
+        bool,
+        typer.Option("--context/--no-context", help="Include context and compaction summaries."),
+    ] = True,
+    provider: Annotated[list[str] | None, typer.Option("--provider")] = None,
+    project: Annotated[list[str] | None, typer.Option("--project")] = None,
+    date_from: Annotated[
+        str | None, typer.Option(help="Earliest event date (YYYY-MM-DD).")
+    ] = None,
+    date_to: Annotated[
+        str | None, typer.Option(help="Latest event date (YYYY-MM-DD).")
+    ] = None,
     offline: Annotated[bool, typer.Option()] = False,
     force: Annotated[bool, typer.Option()] = False,
 ) -> None:
     """Build an optional pgvector semantic index and projection."""
 
     settings = _settings(data_dir, None, None)
+    try:
+        policy = SemanticPolicy(
+            include_reasoning=include_reasoning,
+            include_reasoning_summaries=include_reasoning_summaries,
+            include_tool_content=include_tool_content,
+            include_context=include_context,
+            providers=tuple(provider or ()),
+            projects=tuple(project or ()),
+            date_from=date_from,
+            date_to=date_to,
+        )
+    except (TypeError, ValueError) as exc:
+        raise typer.BadParameter(str(exc)) from exc
     summary = SemanticDeriver(settings, progress=typer.echo).run(
         DeriveOptions(
             profile=profile,
@@ -640,6 +681,7 @@ def semantic_refresh_command(
             device=device,
             offline=offline,
             force=force,
+            policy=policy,
         )
     )
     typer.echo(

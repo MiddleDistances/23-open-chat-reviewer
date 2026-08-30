@@ -62,6 +62,7 @@ def test_plan_normalises_setup_page_payload_and_validates_dates() -> None:
             "historyStart": "2026-01-02",
             "historyEnd": "2026-01-31",
             "preserveEncryptedReasoning": False,
+            "includeReadableReasoningInSearch": True,
             "includeReasoningInProjection": True,
         }
     )
@@ -70,6 +71,7 @@ def test_plan_normalises_setup_page_payload_and_validates_dates() -> None:
     assert plan.include_git is False
     assert plan.history_scope == (date(2026, 1, 2), date(2026, 1, 31))
     assert plan.preserve_encrypted_reasoning is False
+    assert plan.include_readable_reasoning_in_search is True
     assert plan.include_reasoning_in_projection is True
 
     with pytest.raises(ValueError, match="on or before"):
@@ -107,6 +109,9 @@ def test_build_commands_are_local_argv_and_include_policy_flags(tmp_path: Path) 
         "semantic",
         "refresh",
         "--reasoning",
+        "--no-context",
+        "--provider",
+        "codex",
         "--date-from",
         "2026-01-02",
         "--date-to",
@@ -147,6 +152,7 @@ def test_manager_runs_phases_persists_safe_state_and_inherits_secret(
     assert len(seen) == 2
     assert seen[0][1]["env"]["CHATREVIEW_DATABASE_URL"].endswith("/db")
     assert seen[0][1]["env"]["CHATREVIEW_RAW_REASONING_RETENTION"] == "redact"
+    assert seen[0][1]["env"]["CHATREVIEW_RAW_REASONING_RETENTION_OVERRIDE"] == "redact"
     assert "shell" not in seen[0][1]
 
     state_path = tmp_path / "runtime" / "setup-build.json"

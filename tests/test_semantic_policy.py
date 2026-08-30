@@ -5,8 +5,8 @@ from chatreview.ingest import Ingestor
 from chatreview.providers import ClaudeAdapter, CodexAdapter
 from chatreview.semantic import (
     DeriveOptions,
-    SemanticDocumentBuilder,
     SemanticDeriver,
+    SemanticDocumentBuilder,
     SemanticPolicy,
     _semantic_policy_clause,
     semantic_policy_from_dict,

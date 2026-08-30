@@ -193,8 +193,16 @@ indexes separately because model downloads and GPU use can be substantial:
 
 ```bash
 uv run open-chat-reviewer refresh
-uv run open-chat-reviewer semantic refresh
+uv run open-chat-reviewer semantic refresh --no-reasoning \
+  --date-from 2026-01-01 --date-to 2026-08-30
 ```
+
+For a new archive that must omit opaque encrypted reasoning before PostgreSQL
+persistence, set `CHATREVIEW_RAW_REASONING_RETENTION=redact` in the machine-local,
+Git-ignored `.chatreview/archive.env` before its first sync. The default is `preserve`.
+Redaction keeps a marker, the original byte count, and a SHA-256 digest, but it is a
+one-way loss of those provider bytes from the database. Changing this setting later
+creates new source revisions; it does not shrink already retained payloads.
 
 Inspect `.chatreview/logs/` and the status output before retrying a failed run. Never
 repair an ingestion problem by editing or deleting source chat files.

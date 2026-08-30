@@ -4,6 +4,7 @@ import os
 import platform
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Literal
 from uuid import UUID
 
 
@@ -22,6 +23,7 @@ class Settings:
     git_root: Path
     host: str = "127.0.0.1"
     port: int = 8765
+    raw_reasoning_retention: Literal["preserve", "redact"] = "preserve"
 
     @property
     def derived_dir(self) -> Path:
@@ -70,6 +72,13 @@ def default_settings(
         machine_id = UUID(machine_id_text)
     except ValueError as exc:
         raise ValueError("CHATREVIEW_MACHINE_ID must be a UUID") from exc
+    raw_reasoning_retention = os.environ.get(
+        "CHATREVIEW_RAW_REASONING_RETENTION", "preserve"
+    ).strip().lower()
+    if raw_reasoning_retention not in {"preserve", "redact"}:
+        raise ValueError(
+            "CHATREVIEW_RAW_REASONING_RETENTION must be 'preserve' or 'redact'"
+        )
     return Settings(
         database_url=database_url,
         machine_id=machine_id,
@@ -82,4 +91,5 @@ def default_settings(
         claude_history=(resolved_claude / "history.jsonl").expanduser().resolve(),
         gemini_root=resolved_gemini.expanduser().resolve(),
         git_root=resolved_git.expanduser().resolve(),
+        raw_reasoning_retention=raw_reasoning_retention,
     )

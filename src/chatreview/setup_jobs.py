@@ -131,6 +131,7 @@ class SetupBuildPlan:
     history_since: date | str | None = None
     history_until: date | str | None = None
     preserve_encrypted_reasoning: bool = True
+    include_readable_reasoning_in_search: bool = False
     include_reasoning_in_projection: bool = False
     run_semantic_refresh: bool = True
 
@@ -164,6 +165,11 @@ class SetupBuildPlan:
         object.__setattr__(self, "preserve_encrypted_reasoning", bool(self.preserve_encrypted_reasoning))
         object.__setattr__(
             self,
+            "include_readable_reasoning_in_search",
+            bool(self.include_readable_reasoning_in_search),
+        )
+        object.__setattr__(
+            self,
             "include_reasoning_in_projection",
             bool(self.include_reasoning_in_projection),
         )
@@ -189,6 +195,10 @@ class SetupBuildPlan:
             "include_reasoning_in_projection",
             value.get("includeReasoningInProjection", False),
         )
+        include_search_reasoning = value.get(
+            "include_readable_reasoning_in_search",
+            value.get("includeReadableReasoningInSearch", False),
+        )
         run_semantic = value.get(
             "run_semantic_refresh",
             value.get("runSemanticRefresh", value.get("includeSemantic", True)),
@@ -199,6 +209,7 @@ class SetupBuildPlan:
             history_since=history_since or None,
             history_until=history_until or None,
             preserve_encrypted_reasoning=bool(preserve),
+            include_readable_reasoning_in_search=bool(include_search_reasoning),
             include_reasoning_in_projection=bool(include_reasoning),
             run_semantic_refresh=bool(run_semantic),
         )
@@ -212,6 +223,7 @@ class SetupBuildPlan:
             "history_since": self.history_since.isoformat() if self.history_since else None,
             "history_until": self.history_until.isoformat() if self.history_until else None,
             "preserve_encrypted_reasoning": self.preserve_encrypted_reasoning,
+            "include_readable_reasoning_in_search": self.include_readable_reasoning_in_search,
             "include_reasoning_in_projection": self.include_reasoning_in_projection,
             "run_semantic_refresh": self.run_semantic_refresh,
         }
@@ -275,6 +287,9 @@ def build_commands(
             if selected.include_reasoning_in_projection
             else SEMANTIC_NO_REASONING_OPTION
         )
+        semantic_argv.append("--no-context")
+        for provider in selected.providers:
+            semantic_argv.extend(("--provider", provider))
         if selected.history_since:
             semantic_argv.extend((SEMANTIC_DATE_FROM_OPTION, selected.history_since.strftime(_DATE_FORMAT)))
         if selected.history_until:
@@ -491,6 +506,9 @@ class SetupBuildManager:
         environment["CHATREVIEW_RAW_REASONING_RETENTION"] = (
             "preserve" if context.plan.preserve_encrypted_reasoning else "redact"
         )
+        environment["CHATREVIEW_RAW_REASONING_RETENTION_OVERRIDE"] = environment[
+            "CHATREVIEW_RAW_REASONING_RETENTION"
+        ]
         self._append_log(context, f"starting {command.phase}: {_display_argv(command.argv)}")
         try:
             process = self.process_factory(

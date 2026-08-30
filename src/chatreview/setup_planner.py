@@ -860,15 +860,26 @@ class PostgresSetupDatabase:
     def _machines(connection: Any) -> tuple[MachineNode, ...]:
         rows = connection.execute(
             """
+            WITH source_counts AS (
+                SELECT machine_id, COUNT(*) AS source_count
+                FROM sources GROUP BY machine_id
+            ), session_counts AS (
+                SELECT machine_id, COUNT(*) AS session_count
+                FROM sessions GROUP BY machine_id
+            ), event_counts AS (
+                SELECT session.machine_id, COUNT(*) AS event_count
+                FROM events event
+                JOIN sessions session ON session.id=event.session_id
+                GROUP BY session.machine_id
+            )
             SELECT machine.id, machine.name, machine.first_seen_at, machine.last_seen_at,
-                   COUNT(DISTINCT source.id) AS source_count,
-                   COUNT(DISTINCT session.id) AS session_count,
-                   COUNT(DISTINCT event.id) AS event_count
+                   COALESCE(source_counts.source_count, 0) AS source_count,
+                   COALESCE(session_counts.session_count, 0) AS session_count,
+                   COALESCE(event_counts.event_count, 0) AS event_count
             FROM machines machine
-            LEFT JOIN sources source ON source.machine_id=machine.id
-            LEFT JOIN sessions session ON session.machine_id=machine.id
-            LEFT JOIN events event ON event.session_id=session.id
-            GROUP BY machine.id, machine.name, machine.first_seen_at, machine.last_seen_at
+            LEFT JOIN source_counts ON source_counts.machine_id=machine.id
+            LEFT JOIN session_counts ON session_counts.machine_id=machine.id
+            LEFT JOIN event_counts ON event_counts.machine_id=machine.id
             ORDER BY machine.name, machine.id
             """
         ).fetchall()

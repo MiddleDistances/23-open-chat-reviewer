@@ -33,6 +33,18 @@ scripts/chatreview-sync.sh
 uv run open-chat-reviewer refresh
 ```
 
+Bound the initial conversation-file selection when required:
+
+```bash
+scripts/chatreview-sync.sh --history-since 2026-01-01 --history-until 2026-08-30
+```
+
+Codex dated session paths are selected exactly. Aggregate history files remain included;
+other provider files use a documented UTC modification-date fallback. Set
+`CHATREVIEW_RAW_REASONING_RETENTION=redact` before the first sync to replace Codex
+`encrypted_content` fields with an audited marker/digest representation. Leave it at
+the default `preserve` when byte-exact provider payload replay is required.
+
 The wrapper loads the environment, refuses an empty discovery set, acquires a local
 `flock`, checks PostgreSQL, and appends to `.chatreview/logs/sync-YYYYMMDD.log`. The
 ingestor records source revisions and resumes from committed offsets. Re-running an

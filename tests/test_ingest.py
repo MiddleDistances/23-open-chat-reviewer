@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import date
 
 import orjson
 
 from chatreview.db import database
-from chatreview.ingest import Ingestor
+from chatreview.ingest import Ingestor, RawLine
 from chatreview.providers import ClaudeAdapter, CodexAdapter
+from chatreview.providers.base import stable_hash
 from chatreview.search import lexical_search, read_raw_event
+from chatreview.types import SourceSpec
 
 
 def make_ingestor(settings):
@@ -94,6 +97,35 @@ def test_history_scope_is_applied_before_deterministic_sharding(corpus) -> None:
     assert max(summary.aggregate_files for summary in summaries) == 2
     with database(settings.database_url, read_only=True) as connection:
         assert connection.execute("SELECT COUNT(*) FROM sources").fetchone()[0] == 3
+
+
+def test_redacted_raw_reasoning_is_transformed_before_archive_persistence(corpus) -> None:
+    settings, codex_session, _ = corpus
+    settings = replace(settings, raw_reasoning_retention="redact")
+    ingestor = make_ingestor(settings)
+    raw = orjson.dumps(
+        {
+            "type": "response_item",
+            "payload": {
+                "type": "reasoning",
+                "encrypted_content": "opaque-ciphertext",
+                "summary": [{"type": "summary_text", "text": "Readable summary"}],
+            },
+        }
+    ) + b"\n"
+    source = SourceSpec("codex", codex_session, "session")
+
+    retained = ingestor._apply_raw_retention(
+        source,
+        [RawLine(1, 0, raw, stable_hash(raw))],
+    )
+
+    stored = orjson.loads(retained[0].payload)
+    assert stored["payload"]["encrypted_content"] == "[redacted encrypted reasoning]"
+    assert stored["payload"]["encrypted_content_redacted"] is True
+    assert stored["payload"]["summary"][0]["text"] == "Readable summary"
+    assert b"opaque-ciphertext" not in retained[0].payload
+    assert retained[0].payload_hash == stable_hash(retained[0].payload)
 
 
 def test_append_resumes_without_reparsing(corpus) -> None:

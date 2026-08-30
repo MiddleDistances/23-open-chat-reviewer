@@ -45,7 +45,23 @@ from chatreview.search import (
     reciprocal_rank_fusion,
     session_events,
 )
-from chatreview.semantic import SemanticSearchService, list_semantic_runs
+from chatreview.semantic import SemanticSearchService, list_semantic_runs, map_points
+from chatreview.setup_jobs import (
+    BuildAlreadyRunning,
+    InvalidBuildPlan,
+    SetupBuildManager,
+    SetupBuildPlan,
+)
+from chatreview.setup_planner import (
+    HistoryScope as SetupHistoryScope,
+)
+from chatreview.setup_planner import (
+    SemanticPolicy as SetupSemanticPolicy,
+)
+from chatreview.setup_planner import (
+    SetupPlan,
+    SetupPlanner,
+)
 from chatreview.timesheets import (
     TimesheetFilters,
     build_timesheet,
@@ -125,6 +141,18 @@ class CombinedTimesheetInput(BaseModel):
     project_keys: list[str] = Field(default_factory=list, max_length=500)
 
 
+class SetupPreviewInput(BaseModel):
+    history_start: date | None = None
+    history_end: date | None = None
+    providers: list[Literal["codex", "claude", "gemini"]] = Field(
+        default_factory=lambda: ["codex", "claude", "gemini"]
+    )
+    include_git_metadata: bool = True
+    preserve_encrypted_reasoning: bool = True
+    include_readable_reasoning_in_search: bool = False
+    include_reasoning_in_projection: bool = False
+
+
 def create_app(settings: Settings) -> FastAPI:
     settings.ensure_output_dirs()
     migrate(settings.database_url)
@@ -134,6 +162,15 @@ def create_app(settings: Settings) -> FastAPI:
         description="Self-hosted PostgreSQL archive for Codex, Claude, Gemini, and Git evidence",
     )
     semantic = SemanticSearchService(settings)
+    setup = SetupPlanner(settings)
+    setup_builds = SetupBuildManager(settings)
+
+    def public_build_status() -> dict[str, Any]:
+        status = setup_builds.status().to_dict()
+        status["startedAt"] = status.pop("started_at")
+        status["updatedAt"] = status.pop("updated_at")
+        status["finishedAt"] = status.pop("finished_at")
+        return status
 
     @contextmanager
     def db() -> Iterator[Session]:
@@ -152,6 +189,73 @@ def create_app(settings: Settings) -> FastAPI:
                 "semantic_run": run["run_key"] if run else None,
                 "semantic_freshness": run["freshness"] if run else None,
             }
+
+    @app.get("/api/setup/status")
+    def setup_status() -> dict[str, Any]:
+        return setup.status().to_dict()
+
+    @app.post("/api/setup/preview")
+    def setup_preview(payload: SetupPreviewInput) -> dict[str, Any]:
+        providers = [*payload.providers]
+        if payload.include_git_metadata:
+            providers.append("git")
+        try:
+            plan = SetupPlan(
+                providers=tuple(providers),
+                history=SetupHistoryScope(
+                    start=payload.history_start,
+                    end=payload.history_end,
+                ),
+                semantic=SetupSemanticPolicy(
+                    include_reasoning=payload.include_reasoning_in_projection,
+                    include_encoded_reasoning=False,
+                    include_tool_calls=False,
+                    include_context_summaries=False,
+                ),
+            )
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(422, str(exc)) from exc
+        result = setup.preview(plan).to_dict()
+        result["retention"] = {
+            "preserve_encrypted_reasoning": payload.preserve_encrypted_reasoning,
+            "include_readable_reasoning_in_search": (
+                payload.include_readable_reasoning_in_search
+            ),
+            "include_reasoning_in_projection": payload.include_reasoning_in_projection,
+        }
+        return result
+
+    @app.get("/api/setup/build")
+    def setup_build_status() -> dict[str, Any]:
+        return public_build_status()
+
+    @app.post("/api/setup/build", status_code=202)
+    def start_setup_build(payload: SetupPreviewInput) -> dict[str, Any]:
+        try:
+            setup_builds.start(
+                SetupBuildPlan(
+                    providers=tuple(payload.providers),
+                    include_git=payload.include_git_metadata,
+                    history_since=payload.history_start,
+                    history_until=payload.history_end,
+                    preserve_encrypted_reasoning=payload.preserve_encrypted_reasoning,
+                    include_readable_reasoning_in_search=(
+                        payload.include_readable_reasoning_in_search
+                    ),
+                    include_reasoning_in_projection=payload.include_reasoning_in_projection,
+                    run_semantic_refresh=True,
+                )
+            )
+        except BuildAlreadyRunning as exc:
+            raise HTTPException(409, str(exc)) from exc
+        except InvalidBuildPlan as exc:
+            raise HTTPException(422, str(exc)) from exc
+        return public_build_status()
+
+    @app.delete("/api/setup/build")
+    def cancel_setup_build() -> dict[str, Any]:
+        setup_builds.cancel()
+        return public_build_status()
 
     @app.get("/api/stats")
     def stats() -> dict[str, Any]:
@@ -487,11 +591,17 @@ def create_app(settings: Settings) -> FastAPI:
         date_from: str | None = None,
         date_to: str | None = None,
         errors_only: bool = False,
+        include_reasoning: bool | None = None,
         profile: Literal["conversation", "episodes"] | None = None,
         run_key: str | None = None,
         limit: Annotated[int, Query(ge=1, le=200)] = 50,
         offset: Annotated[int, Query(ge=0)] = 0,
     ) -> dict[str, Any]:
+        if include_reasoning is None:
+            saved_plan = setup_builds.status().plan
+            include_reasoning = bool(
+                saved_plan.get("include_readable_reasoning_in_search", False)
+            )
         filters = SearchFilters(
             provider=provider,
             project=project,
@@ -503,6 +613,7 @@ def create_app(settings: Settings) -> FastAPI:
             date_from=date_from,
             date_to=date_to,
             errors_only=errors_only,
+            include_reasoning=include_reasoning,
         )
         with db() as connection:
             candidate_limit = 100 if mode == "hybrid" else limit
@@ -719,6 +830,32 @@ def create_app(settings: Settings) -> FastAPI:
     def semantic_runs() -> list[dict[str, Any]]:
         with db() as connection:
             return list_semantic_runs(connection)
+
+    @app.get("/api/map")
+    def semantic_map(
+        run_id: int | None = None,
+        profile: Literal["conversation", "episodes"] | None = None,
+        provider: str | None = None,
+        project: str | None = None,
+        cluster_id: int | None = None,
+        date_from: date | None = None,
+        date_to: date | None = None,
+        limit: Annotated[int, Query(ge=100, le=500_000)] = 200_000,
+    ) -> dict[str, Any]:
+        if date_from and date_to and date_from > date_to:
+            raise HTTPException(422, "date_from must be on or before date_to")
+        with db() as connection:
+            return map_points(
+                connection,
+                run_id=run_id,
+                profile=profile,
+                provider=provider,
+                project=project,
+                cluster_id=cluster_id,
+                date_from=date_from,
+                date_to=date_to,
+                limit=limit,
+            )
 
     @app.get("/api/windows/{window_id}")
     def window_detail(window_id: int) -> dict[str, Any]:

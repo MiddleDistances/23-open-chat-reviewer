@@ -58,6 +58,63 @@ def test_api_search_transcript_and_annotations(corpus) -> None:
     assert raw.json()["valid"] is True
 
 
+def test_setup_preview_and_map_date_validation(corpus) -> None:
+    settings, _, _ = corpus
+    Ingestor(
+        settings,
+        [CodexAdapter(settings.codex_root), ClaudeAdapter(settings.claude_root)],
+    ).run()
+    client = TestClient(create_app(settings))
+
+    status = client.get("/api/setup/status")
+    assert status.status_code == 200
+    assert status.json()["machine"]["id"] == str(settings.machine_id)
+    assert "postgresql" not in repr(status.json()).lower()
+
+    preview = client.post(
+        "/api/setup/preview",
+        json={
+            "history_start": "2026-07-18",
+            "history_end": "2026-07-18",
+            "providers": ["codex"],
+            "include_git_metadata": False,
+            "preserve_encrypted_reasoning": False,
+            "include_readable_reasoning_in_search": True,
+            "include_reasoning_in_projection": False,
+        },
+    )
+    assert preview.status_code == 200
+    assert preview.json()["scope_estimate"]["events"] > 0
+    assert preview.json()["retention"] == {
+        "preserve_encrypted_reasoning": False,
+        "include_readable_reasoning_in_search": True,
+        "include_reasoning_in_projection": False,
+    }
+    assert settings.database_url not in repr(preview.json())
+
+    inverted = client.get(
+        "/api/map",
+        params={"date_from": "2026-08-30", "date_to": "2026-08-01"},
+    )
+    assert inverted.status_code == 422
+
+    build = client.get("/api/setup/build")
+    assert build.status_code == 200
+    assert build.json()["status"] == "idle"
+    assert "startedAt" in build.json()
+
+    hidden_reasoning = client.get(
+        "/api/search", params={"q": "assumption", "mode": "lexical"}
+    )
+    included_reasoning = client.get(
+        "/api/search",
+        params={"q": "assumption", "mode": "lexical", "include_reasoning": True},
+    )
+    assert hidden_reasoning.status_code == 200
+    assert hidden_reasoning.json()["lexical"] == []
+    assert included_reasoning.json()["lexical"]
+
+
 def test_work_archive_registry_trail_timesheets_and_status(corpus) -> None:
     settings, _, _ = corpus
     Ingestor(

@@ -24,6 +24,7 @@ class SearchFilters:
     date_from: str | None = None
     date_to: str | None = None
     errors_only: bool = False
+    include_reasoning: bool = True
 
 
 def lexical_search(
@@ -453,6 +454,8 @@ def _append_filters(clauses: list[str], parameters: list[Any], filters: SearchFi
             parameters.append(value)
     if filters.errors_only:
         clauses.append("t.is_error")
+    if not filters.include_reasoning:
+        clauses.append("t.kind NOT IN ('reasoning', 'reasoning-summary')")
 
 
 def _row_dict(row: Row) -> dict[str, Any]:
