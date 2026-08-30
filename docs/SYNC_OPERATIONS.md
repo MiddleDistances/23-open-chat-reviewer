@@ -14,6 +14,10 @@ uv run open-chat-reviewer doctor
 stable, distinct `CHATREVIEW_MACHINE_ID`. Migrations are deliberate: the sync wrapper
 runs the doctor but does not migrate unless `CHATREVIEW_SYNC_MIGRATE=1`.
 
+For several computers, host PostgreSQL and the derived worker on one central node and run
+sync-only writers on the others. Do not share a machine ID or database password between
+writers. See [Tailscale central archive and remote writers](TAILSCALE_MULTI_MACHINE.md).
+
 ## Incremental sync
 
 ```bash

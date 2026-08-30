@@ -9,6 +9,11 @@ Git activity and overlap-aware workload calendars are included as an enabled-by-
 module. Evidence-bounded resume cards are optional and work with a local Qwen model,
 hosted model gateways, Anthropic, or a small custom provider plugin.
 
+The recommended topology is one Tailscale-only central archive with small writer agents
+on each computer. Every writer scans its local read-only chat directories into the same
+PostgreSQL database, so the review and workload views span the user's actual machines
+without copying raw archive files between them.
+
 ![Status: alpha](https://img.shields.io/badge/status-alpha-orange)
 ![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)
 
@@ -30,7 +35,8 @@ from the original private application are intentionally not part of this reposit
 ## Quick start
 
 Requirements: Python 3.12 or 3.13, [uv](https://docs.astral.sh/uv/), Docker with Compose,
-and optionally [Bun](https://bun.sh/) to build the UI.
+[Tailscale](https://tailscale.com/download) for the recommended private multi-machine
+setup, and optionally [Bun](https://bun.sh/) to build the UI.
 
 ```bash
 git clone https://github.com/MiddleDistances/23-open-chat-reviewer.git
@@ -40,9 +46,12 @@ scripts/chatreview-sync.sh
 scripts/chatreview-web.sh
 ```
 
-Open <http://127.0.0.1:8765>. `bootstrap.sh` creates a private
+When Tailscale is connected, open `http://<this-machine's-MagicDNS-name>:8765` from an
+allowed tailnet device. Otherwise open <http://127.0.0.1:8765>. `bootstrap.sh` creates a private
 `.chatreview/archive.env`, starts the bundled PostgreSQL/pgvector database, applies
-migrations, and builds the UI when Bun is available.
+migrations, and builds the UI when Bun is available. Its automatic network mode prefers
+Tailscale and generates a random database password; set
+`CHATREVIEW_INIT_NETWORK=loopback` to force a single-computer installation.
 
 Review `.chatreview/archive.env` before the first sync. The generated defaults scan
 `~/.codex`, `~/.claude`, `~/.gemini`, and `~/Projects` for Git repositories. Override
@@ -103,6 +112,7 @@ boundaries with `CHATREVIEW_TIMEZONE`, for example `Australia/Perth`.
 - [Architecture](docs/ARCHITECTURE.md)
 - [Source adapters](docs/SOURCE_ADAPTERS.md)
 - [Sync and worker operations](docs/SYNC_OPERATIONS.md)
+- [Tailscale central archive and remote writers](docs/TAILSCALE_MULTI_MACHINE.md)
 - [Deployment](docs/DEPLOYMENT.md)
 - [Audit and extraction boundary](docs/AUDIT.md)
 - [Visual design language](design.md)
@@ -121,10 +131,11 @@ port `6543`. See [CONTRIBUTING.md](CONTRIBUTING.md) for a complete setup.
 
 ## Privacy and security
 
-Raw chat archives often contain source code, paths, prompts, and credentials. The web
-server binds to loopback by default and has no built-in multi-user authentication. Do not
-expose it to the public internet. Use a private network or an authenticated reverse proxy
-for remote access, and read [SECURITY.md](SECURITY.md) before deployment.
+Raw chat archives often contain source code, paths, prompts, and credentials. Automatic
+bootstrap binds to an active Tailscale interface when available and otherwise falls back
+to loopback. The web app has no built-in multi-user authentication. Do not expose it to
+the public internet; restrict both the UI and PostgreSQL ports with tailnet grants and read
+[SECURITY.md](SECURITY.md) before deployment.
 
 ## License
 

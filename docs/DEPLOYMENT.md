@@ -1,13 +1,15 @@
 # Deployment
 
 Open Chat Reviewer is designed for one trusted user or a small trusted team on a private
-network. PostgreSQL is authoritative; `.chatreview/` holds only local configuration,
-reports, locks, and logs.
+Tailscale network. PostgreSQL is authoritative; `.chatreview/` holds only local
+configuration, reports, locks, and logs. The preferred multi-machine topology is covered
+in [Tailscale central archive and remote writers](TAILSCALE_MULTI_MACHINE.md).
 
 ## Bundled database
 
-`compose.yaml` starts PostgreSQL 17 with pgvector on loopback port `54329` and a named
-volume:
+`compose.yaml` starts PostgreSQL 17 with pgvector on the address selected by `init` and a
+named volume. Automatic initialization prefers an active Tailscale IPv4 address and
+generates a random database password; it falls back to loopback when Tailscale is absent:
 
 ```bash
 docker compose up -d db
@@ -16,8 +18,9 @@ uv run open-chat-reviewer db migrate
 uv run open-chat-reviewer db doctor
 ```
 
-Change the example password for any non-local deployment. Back up the named volume through
-PostgreSQL tools, and practice restore before relying on the archive.
+Legacy or hand-written configuration falls back to the local `chatreview` password only
+for compatibility. Never use that fallback beyond loopback. Back up the named volume
+through PostgreSQL tools, and practice restore before relying on the archive.
 
 ## Web process
 
@@ -25,10 +28,10 @@ PostgreSQL tools, and practice restore before relying on the archive.
 scripts/chatreview-web.sh
 ```
 
-The default bind is `127.0.0.1:8765`. To bind to your Tailscale address, set
-`CHATREVIEW_WEB_TAILSCALE_ONLY=1`. There is no application authentication layer, so never
-bind directly to a public interface. For shared use, put an authenticated TLS reverse
-proxy in front and use a least-privilege database role.
+The script binds to Tailscale when generated configuration contains
+`CHATREVIEW_WEB_TAILSCALE_ONLY=1`; an explicit loopback installation binds to
+`127.0.0.1:8765`. There is no application authentication layer, so never bind directly to
+a public interface. Use least-privilege Tailscale grants and one database login per writer.
 
 ## Background services
 

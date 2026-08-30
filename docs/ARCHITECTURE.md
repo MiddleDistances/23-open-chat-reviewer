@@ -22,6 +22,12 @@ canonical events -> sessions -> traces -> episodes
 FastAPI -> React UI / CLI / JSON and CSV exports
 ```
 
+In the recommended multi-machine deployment, each source computer runs only the
+inventory/sync adapter against the central PostgreSQL authority over Tailscale. Machine
+identity is part of every source key. One central worker owns schema migration and global
+derived refreshes, and one central web process presents the combined archive. See
+[Tailscale central archive and remote writers](TAILSCALE_MULTI_MACHINE.md).
+
 ## Design rules
 
 1. Source directories are read-only. Only PostgreSQL and `.chatreview/` are writable.
@@ -32,7 +38,8 @@ FastAPI -> React UI / CLI / JSON and CSV exports
 5. A summary provider receives a bounded evidence prompt, never database or filesystem
    access. Its output must pass the strict `ResumeDraft` schema.
 6. Unchanged evidence fingerprints reuse prior summaries.
-7. Database advisory locks and filesystem locks prevent overlapping jobs.
+7. Source-scoped database advisory locks and machine-local filesystem locks protect
+   ingestion; a global database lock serializes central derived worker cycles.
 8. Optional modules may be absent without making core archive health fail.
 
 ## Modules

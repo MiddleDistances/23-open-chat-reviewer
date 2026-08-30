@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import importlib.util
+import ipaddress
 import json
+import os
 import platform
+import secrets
 import shlex
 import subprocess
 import sys
@@ -145,6 +148,47 @@ def _provider_selection(provider: list[str] | None, *, include_git: bool) -> set
     return None if include_git else {"codex", "claude", "gemini"}
 
 
+def _tailscale_identity() -> tuple[str, str] | None:
+    """Return the active Tailscale IPv4 and preferred MagicDNS name, if available."""
+
+    try:
+        result = subprocess.run(
+            ["tailscale", "ip", "-4"],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=3,
+        )
+    except (FileNotFoundError, subprocess.SubprocessError):
+        return None
+    addresses = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+    if len(addresses) != 1:
+        return None
+    try:
+        address = ipaddress.ip_address(addresses[0])
+    except ValueError:
+        return None
+    if address.version != 4 or address.is_loopback:
+        return None
+
+    hostname = str(address)
+    try:
+        status = subprocess.run(
+            ["tailscale", "status", "--json"],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=3,
+        )
+        payload = json.loads(status.stdout)
+        dns_name = str(payload.get("Self", {}).get("DNSName", "")).rstrip(".")
+        if payload.get("CurrentTailnet", {}).get("MagicDNSEnabled") and dns_name:
+            hostname = dns_name
+    except (json.JSONDecodeError, FileNotFoundError, subprocess.SubprocessError):
+        pass
+    return str(address), hostname
+
+
 @app.command("init")
 def initialize(
     output: Annotated[
@@ -152,32 +196,82 @@ def initialize(
         typer.Option("--output", help="Environment file to create."),
     ] = Path(".chatreview/archive.env"),
     database_url: Annotated[
-        str,
+        str | None,
         typer.Option(help="PostgreSQL URL written to the local environment file."),
-    ] = "postgresql://chatreview:chatreview@127.0.0.1:54329/chatreview",
+    ] = None,
+    role: Annotated[
+        Literal["central", "writer"],
+        typer.Option(help="Central nodes host the UI/database; writer nodes only ingest local sources."),
+    ] = "central",
+    network: Annotated[
+        Literal["auto", "tailscale", "loopback"],
+        typer.Option(
+            help="Central-node bind policy. Auto prefers an active Tailscale interface."
+        ),
+    ] = "auto",
 ) -> None:
-    """Create a private local environment file with a stable machine identity."""
+    """Create private central-node or remote-writer configuration."""
 
     if output.exists():
         typer.echo(f"Refusing to overwrite existing configuration: {output}", err=True)
         raise typer.Exit(2)
+    if role == "writer":
+        database_url = database_url or os.environ.get("CHATREVIEW_DATABASE_URL")
+        if not database_url:
+            raise typer.BadParameter(
+                "writer nodes require --database-url or CHATREVIEW_DATABASE_URL"
+            )
+        network_values: dict[str, str] = {}
+    else:
+        identity = None if network == "loopback" else _tailscale_identity()
+        if network == "tailscale" and identity is None:
+            raise typer.BadParameter(
+                "--network tailscale requires one active Tailscale IPv4 address"
+            )
+        bind_address, public_host = identity or ("127.0.0.1", "127.0.0.1")
+        network_values = {
+            "CHATREVIEW_DB_BIND_ADDRESS": bind_address,
+            "CHATREVIEW_DB_PORT": "54329",
+            "CHATREVIEW_PUBLIC_DATABASE_HOST": public_host,
+            "CHATREVIEW_WEB_TAILSCALE_ONLY": "1" if identity else "0",
+        }
+        if database_url is None:
+            password = secrets.token_hex(24)
+            database_url = (
+                f"postgresql://chatreview:{password}@{bind_address}:54329/chatreview"
+            )
+            network_values["CHATREVIEW_POSTGRES_PASSWORD"] = password
+
     output.parent.mkdir(parents=True, exist_ok=True)
     values = {
         "CHATREVIEW_DATABASE_URL": database_url,
         "CHATREVIEW_MACHINE_ID": str(uuid4()),
         "CHATREVIEW_MACHINE_NAME": platform.node() or "local-machine",
+        "CHATREVIEW_NODE_ROLE": role,
         "CHATREVIEW_CODEX_ROOT": str(Path.home() / ".codex"),
         "CHATREVIEW_CLAUDE_ROOT": str(Path.home() / ".claude"),
         "CHATREVIEW_GEMINI_ROOT": str(Path.home() / ".gemini"),
         "CHATREVIEW_GIT_ROOT": str(Path.home() / "Projects"),
         "CHATREVIEW_ENABLE_GIT": "1",
         "CHATREVIEW_ENABLE_SUMMARIES": "0",
+        **network_values,
     }
     content = "\n".join(f"export {key}={shlex.quote(value)}" for key, value in values.items()) + "\n"
     output.write_text(content, encoding="utf-8")
     output.chmod(0o600)
     typer.echo(f"Created {output} with mode 600.")
-    typer.echo(f"Next: source {output} && docker compose up -d db && uv run open-chat-reviewer db migrate")
+    if role == "writer":
+        typer.echo(f"Next: source {output} && uv run open-chat-reviewer db doctor")
+        typer.echo("Then run scripts/chatreview-sync.sh; do not run migrations from a writer node.")
+    else:
+        if network_values["CHATREVIEW_WEB_TAILSCALE_ONLY"] == "1":
+            typer.echo(
+                "Selected the active Tailscale interface for the bundled database and web UI."
+            )
+        typer.echo(
+            f"Next: source {output} && docker compose up -d db && "
+            "uv run open-chat-reviewer db migrate"
+        )
 
 
 def _doctor(

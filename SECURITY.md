@@ -15,9 +15,11 @@ suggested mitigation. Remove secrets and personal archive content.
 
 ## Deployment boundary
 
-Open Chat Reviewer stores highly sensitive conversation material. It binds to loopback by
-default and does not implement multi-user authentication. Operators are responsible for
-TLS, authentication, access control, database encryption/backups, key rotation, and
-provider data-retention review when exposing it beyond one machine.
+Open Chat Reviewer stores highly sensitive conversation material. Automatic bootstrap
+prefers a direct Tailscale-interface bind and otherwise uses loopback; it never needs a
+public listener. The application does not implement multi-user authentication. Operators
+are responsible for restrictive tailnet grants, per-writer database credentials, TLS
+where required, database encryption/backups, key rotation, and provider data-retention
+review when sharing it beyond one machine.
 
 Never commit `.chatreview/`, raw JSONL, database URLs, API keys, or generated exports.

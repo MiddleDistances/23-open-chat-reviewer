@@ -21,7 +21,7 @@ command -v docker >/dev/null 2>&1 || {
 
 uv sync
 if [[ ! -f .chatreview/archive.env ]]; then
-    .venv/bin/open-chat-reviewer init
+    .venv/bin/open-chat-reviewer init --network "${CHATREVIEW_INIT_NETWORK:-auto}"
 fi
 
 set -a
@@ -38,4 +38,11 @@ else
     printf 'Bun was not found; the CLI is ready, but build the UI later with bun.\n'
 fi
 
-printf 'Bootstrap complete. Run: scripts/chatreview-sync.sh && scripts/chatreview-web.sh\n'
+if [[ "${CHATREVIEW_WEB_TAILSCALE_ONLY:-0}" == "1" ]]; then
+    web_host="$(tailscale ip -4)"
+else
+    web_host="${CHATREVIEW_WEB_HOST:-127.0.0.1}"
+fi
+printf 'Bootstrap complete. Web URL after launch: http://%s:%s\n' \
+    "$web_host" "${CHATREVIEW_WEB_PORT:-8765}"
+printf 'Run: scripts/chatreview-sync.sh && scripts/chatreview-web.sh\n'

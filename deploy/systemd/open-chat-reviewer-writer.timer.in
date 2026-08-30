@@ -1,0 +1,11 @@
+[Unit]
+Description=Sync this machine's AI chats to Open Chat Reviewer
+
+[Timer]
+OnBootSec=10m
+OnUnitActiveSec=3h
+RandomizedDelaySec=15m
+Persistent=true
+
+[Install]
+WantedBy=timers.target

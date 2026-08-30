@@ -1,0 +1,12 @@
+[Unit]
+Description=Open Chat Reviewer remote source writer
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=@REPO_ROOT@
+Environment=CHATREVIEW_ENV_FILE=@REPO_ROOT@/.chatreview/archive.env
+ExecStart=@REPO_ROOT@/scripts/chatreview-sync.sh
+NoNewPrivileges=true
+PrivateTmp=true
