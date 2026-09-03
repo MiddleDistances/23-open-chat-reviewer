@@ -42,7 +42,7 @@ semantic = [
   "umap-learn>=0.5.9",
 ]
 mcp = [
-  "mcp>=1.12,<2",
+  "mcp>=1.12,<3",
 ]
 dev = [
   "httpx>=0.28",
