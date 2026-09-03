@@ -4,11 +4,43 @@ updates:
     directory: /
     schedule:
       interval: weekly
+      day: monday
+      time: "03:00"
+      timezone: Australia/Perth
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: deps
+    groups:
+      python-minor-and-patch:
+        update-types:
+          - minor
+          - patch
   - package-ecosystem: npm
     directory: /web
     schedule:
       interval: weekly
+      day: monday
+      time: "03:15"
+      timezone: Australia/Perth
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: deps
+    groups:
+      web-minor-and-patch:
+        update-types:
+          - minor
+          - patch
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+      day: monday
+      time: "03:30"
+      timezone: Australia/Perth
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: deps
+    groups:
+      actions:
+        patterns:
+          - "*"

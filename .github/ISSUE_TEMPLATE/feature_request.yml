@@ -1,0 +1,45 @@
+name: Feature request
+description: Propose a focused improvement to Open Chat Reviewer.
+title: "feat: "
+labels:
+  - enhancement
+body:
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Preflight
+      options:
+        - label: I searched existing issues and discussions for this request.
+          required: true
+        - label: This request can be discussed without sharing private archive content.
+          required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem to solve
+      description: Describe the user or operator problem rather than only a proposed implementation.
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Desired outcome
+      description: What would become possible, safer, or easier?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed approach
+      description: Optional implementation or interface ideas.
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: textarea
+    id: safety
+    attributes:
+      label: Privacy, migration, and compatibility impact
+      description: Consider archive privacy, read-only sources, database migrations, and existing installs.
+    validations:
+      required: true
