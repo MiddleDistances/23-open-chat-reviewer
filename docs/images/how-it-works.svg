@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="620" viewBox="0 0 1200 620" role="img" aria-labelledby="title description">
   <title id="title">How Open Chat Reviewer connects several computers to one private archive</title>
-  <desc id="description">A laptop, desktop, and Linux box sync Codex, Claude, Gemini, and Git evidence over Tailscale to one PostgreSQL archive. The archive serves a web app, workload calendar, local summaries, and a planned MCP interface.</desc>
+  <desc id="description">A laptop, desktop, and Linux box sync Codex, Claude, Gemini, and Git evidence over Tailscale to one PostgreSQL archive. The archive serves a web app, workload calendar, local summaries, and a read-only MCP interface.</desc>
   <defs>
     <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
       <path d="M 0 0 L 10 5 L 0 10 z" fill="#55708f"/>
@@ -11,7 +11,6 @@
       .source { fill: #eef5ff; stroke: #91b3df; }
       .central { fill: #16385f; stroke: #16385f; }
       .output { fill: #eff8f2; stroke: #9ac7a5; }
-      .planned { fill: #fff8e8; stroke: #d5ad53; stroke-dasharray: 8 6; }
       .line { fill: none; stroke: #55708f; stroke-width: 3; marker-end: url(#arrow); }
       .line-soft { fill: none; stroke: #8ba0b8; stroke-width: 2; stroke-dasharray: 6 6; marker-end: url(#arrow); }
       .title { fill: #17283d; font: 700 25px ui-sans-serif, system-ui, sans-serif; }
@@ -77,10 +76,10 @@
     <text class="body" x="856" y="324">Calendar and draft timesheets from</text>
     <text class="tiny" x="856" y="348">chat activity plus Git commits</text>
 
-    <rect class="card planned" x="828" y="395" width="324" height="120" rx="14"/>
+    <rect class="card output" x="828" y="395" width="324" height="120" rx="14"/>
     <text class="label" x="856" y="435">Let other agents look back</text>
     <text class="body" x="856" y="464">Read-only archive MCP</text>
-    <text class="tiny" x="856" y="488">planned for the public release</text>
+    <text class="tiny" x="856" y="488">search and cite archived evidence</text>
   </g>
 
   <path class="line-soft" d="M 586 425 L 586 548 L 828 548"/>
