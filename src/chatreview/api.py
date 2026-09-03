@@ -1134,6 +1134,13 @@ def create_app(settings: Settings) -> FastAPI:
             }
             return Response(output, media_type=media_types[format])
 
+    @app.get("/token-report", include_in_schema=False)
+    def token_report_panel() -> Response:
+        """Live token cost report. Local addition; see chatreview/token_panel.py."""
+        from chatreview.token_panel import render_html
+
+        return Response(render_html(settings.database_url), media_type="text/html; charset=utf-8")
+
     web_dist = Path(__file__).resolve().parents[2] / "web" / "dist"
     if web_dist.is_dir():
         assets = web_dist / "assets"
