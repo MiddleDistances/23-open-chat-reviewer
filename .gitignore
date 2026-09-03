@@ -18,3 +18,6 @@ reports/generated/
 *.jsonl
 *.log
 .DS_Store
+
+# local backups left by contrib/token-cost/apply_panel_patch.py
+*.orig

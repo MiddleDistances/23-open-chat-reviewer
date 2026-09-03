@@ -3,6 +3,7 @@ import {
   Boxes,
   CalendarClock,
   CircleGauge,
+  Coins,
   Database,
   FileCode2,
   FolderKanban,
@@ -33,6 +34,16 @@ const TracePage = lazy(() => import("./pages/TracePage"));
 const WorkArchivePage = lazy(() => import("./pages/WorkArchivePage"));
 const MapPage = lazy(() => import("./pages/MapPage"));
 
+function TokenCostPage() {
+  return (
+    <iframe
+      title="Token cost"
+      src="/token-report"
+      style={{ width: "100%", height: "calc(100vh - 2rem)", border: 0, display: "block" }}
+    />
+  );
+}
+
 const navigation = [
   {
     label: "Review",
@@ -59,6 +70,7 @@ const navigation = [
       { to: "/work-trail", label: "Work trail", icon: GitCompareArrows, basic: false },
       { to: "/timesheets", label: "Workload", icon: CalendarClock, basic: true },
       { to: "/archive-status", label: "Archive status", icon: Archive, basic: false },
+      { to: "/token-cost", label: "Token cost", icon: Coins, basic: true },
     ],
   },
   {
@@ -153,6 +165,7 @@ export default function App() {
             <Route path="/work-trail" element={<WorkArchivePage />} />
             <Route path="/timesheets" element={<WorkArchivePage />} />
             <Route path="/archive-status" element={<WorkArchivePage />} />
+            <Route path="/token-cost" element={<TokenCostPage />} />
           </Routes>
         </Suspense>
       </main>
