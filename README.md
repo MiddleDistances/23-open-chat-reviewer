@@ -51,7 +51,7 @@ it arbitrary SQL, filesystem access, or permission to rewrite the evidence.
 
 ## How it works
 
-![Several computers sync their AI chats and Git metadata over Tailscale to one central archive, which serves the web app, workload calendar, summaries, and a planned MCP.](docs/images/how-it-works.svg)
+![Several computers sync their AI chats and Git metadata over Tailscale to one central archive, which serves the web app, workload calendar, summaries, and a read-only MCP.](docs/images/how-it-works.svg)
 
 Each computer reads its own chat and Git sources without modifying them. A small sync
 helper sends that evidence over a private Tailscale network to one PostgreSQL archive. The web
