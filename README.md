@@ -4,6 +4,7 @@
 
 ![Status: alpha](https://img.shields.io/badge/status-alpha-orange)
 ![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)
+[![CI](https://github.com/MiddleDistances/23-open-chat-reviewer/actions/workflows/ci.yml/badge.svg)](https://github.com/MiddleDistances/23-open-chat-reviewer/actions/workflows/ci.yml)
 
 ## Why I made this
 
@@ -167,7 +168,11 @@ cd web && bun install --frozen-lockfile && bun run test && bun run build
 ```
 
 The project is alpha software. Contributions and plain-language setup feedback are very
-welcome; see [CONTRIBUTING.md](CONTRIBUTING.md).
+welcome. Start with the [contribution guide](CONTRIBUTING.md), browse
+[`good first issue`](https://github.com/MiddleDistances/23-open-chat-reviewer/labels/good%20first%20issue),
+or ask a question in [Discussions](https://github.com/MiddleDistances/23-open-chat-reviewer/discussions).
+Project decision-making is documented in [GOVERNANCE.md](GOVERNANCE.md), and support
+routes are listed in [SUPPORT.md](SUPPORT.md).
 
 ## License
 

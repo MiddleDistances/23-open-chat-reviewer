@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability or sensitive disclosure
+    url: https://github.com/MiddleDistances/23-open-chat-reviewer/security/advisories/new
+    about: Report vulnerabilities, credentials, or private archive content privately.
+  - name: Setup and usage question
+    url: https://github.com/MiddleDistances/23-open-chat-reviewer/discussions/categories/q-a
+    about: Ask for help without posting private chat content or credentials.

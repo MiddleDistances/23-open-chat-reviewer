@@ -2,14 +2,27 @@ name: CI
 
 on:
   push:
+    branches: [main]
   pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
 
 jobs:
   python:
+    name: Python ${{ matrix.python-version }}
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13"]
     services:
       postgres:
         image: pgvector/pgvector:pg17
@@ -27,25 +40,31 @@ jobs:
     env:
       CHATREVIEW_TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:6543/chatreview
     steps:
-      - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          python-version: "3.13"
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+        with:
+          python-version: ${{ matrix.python-version }}
           enable-cache: true
       - run: uv sync --frozen
       - run: uv run ruff check src tests
       - run: uv run pytest -q
 
   web:
+    name: Web
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: web
     steps:
-      - uses: actions/checkout@v7
-      - uses: oven-sh/setup-bun@v2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          bun-version: latest
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.3.4"
       - run: bun install --frozen-lockfile
       - run: bun run lint
       - run: bun run test
