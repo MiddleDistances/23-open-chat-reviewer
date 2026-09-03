@@ -10,6 +10,7 @@ from typing import Any
 
 import pytest
 
+from chatreview import setup_jobs
 from chatreview.setup_jobs import (
     BuildAlreadyRunning,
     SetupBuildManager,
@@ -191,6 +192,37 @@ def test_manager_allows_only_one_job_and_cancel_is_safe(tmp_path: Path) -> None:
     assert manager.cancel().status == "cancelling"
     assert manager.wait(timeout=2).status == "cancelled"
     assert processes[0].terminated is True
+
+
+def test_state_writes_use_distinct_temporary_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    manager = SetupBuildManager(_settings(tmp_path), repository_root=tmp_path)
+    writers_ready = threading.Barrier(2)
+    original_chmod = setup_jobs.os.chmod
+
+    def synchronized_chmod(path: Path, mode: int) -> None:
+        original_chmod(path, mode)
+        if Path(path).name.startswith(".setup-build.json."):
+            writers_ready.wait(timeout=2)
+
+    monkeypatch.setattr(setup_jobs.os, "chmod", synchronized_chmod)
+    errors: list[BaseException] = []
+
+    def write_state(writer: str) -> None:
+        try:
+            manager._write_state({"writer": writer})
+        except BaseException as exc:
+            errors.append(exc)
+
+    threads = [threading.Thread(target=write_state, args=(writer,)) for writer in ("a", "b")]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=2)
+
+    assert errors == []
+    assert json.loads(manager.state_path.read_text(encoding="utf-8"))["writer"] in {"a", "b"}
 
 
 def test_status_marks_orphaned_running_state_interrupted(tmp_path: Path) -> None:
