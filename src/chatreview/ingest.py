@@ -20,6 +20,7 @@ from chatreview.providers.base import ProviderAdapter, stable_hash
 from chatreview.registry import apply_contributor_rules, rebuild_registry
 from chatreview.retention import RawRetentionPolicy
 from chatreview.source_selection import HistoryScope, SourceSelectionPreview, preview_source_selection
+from chatreview.token_usage import persist_usage
 from chatreview.types import ParsedRecord, SourceSpec, TextFragment
 
 ProgressCallback = Callable[[str], None]
@@ -86,6 +87,7 @@ class _ProjectionBatchWriter:
         raw_ids: dict[int, int],
         parsed_items: list[tuple[RawLine, list[ParsedRecord] | None, str | None]],
     ) -> _ProjectionBatchResult:
+        usage_items = []
         sessions: dict[str, list[Any]] = {}
         contents: dict[str, tuple[str, int]] = {}
         events: list[tuple[Any, ...]] = []
@@ -138,6 +140,8 @@ class _ProjectionBatchWriter:
                     record_index=record_index,
                     record_count=record_count,
                 )
+                if parsed.provider == "claude" and parsed.role == "assistant":
+                    usage_items.append((event_key, parsed.token_usage))
                 event_ordinal = item.line_no if record_count == 1 else record_index + 1
                 timestamp = normalize_timestamp(parsed.timestamp)
                 metadata_json = _postgres_json(parsed.metadata)
@@ -259,6 +263,7 @@ class _ProjectionBatchWriter:
             artifacts=artifacts,
         )
         self._merge_staging(connection)
+        persist_usage(connection, usage_items)
         return _ProjectionBatchResult(
             events=len(events),
             text_units=len(text_units),
@@ -1459,6 +1464,8 @@ class Ingestor:
         ).fetchone()
         assert row is not None
         event_id = int(row["id"])
+        if parsed.provider == "claude" and parsed.role == "assistant":
+            persist_usage(connection, [(event_key, parsed.token_usage)])
         fragments = _split_searchable_fragments(parsed.fragments)
         for unit_index, fragment in enumerate(fragments):
             content_id, fragment_hash = self._upsert_content(connection, fragment.text)

@@ -88,6 +88,7 @@ from chatreview.timesheets import (
     timesheet_calendar,
     work_trail,
 )
+from chatreview.token_costs import group_days, token_cost_report
 from chatreview.trace import build_session_trace
 
 
@@ -1133,6 +1134,28 @@ def create_app(settings: Settings) -> FastAPI:
                 "csv": "text/csv",
             }
             return Response(output, media_type=media_types[format])
+
+    @app.get("/api/token-costs/{view}")
+    def token_costs_view(
+        view: Literal["status", "summary", "daily", "sessions"],
+        date_from: Annotated[date | None, Query(alias="from")] = None,
+        date_to: Annotated[date | None, Query(alias="to")] = None,
+        project: int | None = None,
+        model: str | None = None,
+        group_by: Literal["day", "week", "month"] = "day",
+        limit: int = Query(50, ge=1, le=500),
+    ) -> dict[str, Any]:
+        """Read completed cost snapshots; no request creates schema or backfills data."""
+        try:
+            with database(settings.database_url, read_only=True) as connection:
+                connection.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+                report = token_cost_report(connection, date_from=date_from, date_to=date_to,
+                                           project=project, model=model, limit=limit)
+            if view == "daily":
+                return {**report, "daily": group_days(report["daily"], group_by)}
+            return report
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
 
     web_dist = Path(__file__).resolve().parents[2] / "web" / "dist"
     if web_dist.is_dir():

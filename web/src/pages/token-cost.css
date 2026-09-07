@@ -1,0 +1,10 @@
+.token-cost-filters { flex-wrap: wrap; }
+.token-cost-filters label { display: grid; gap: .4rem; }
+.token-cost-provenance { margin: 1.5rem 0; padding: 1rem; border: 1px solid var(--border); border-radius: 12px; }
+.token-cost-provenance p { margin: .5rem 0; overflow-wrap: anywhere; }
+.token-cost-totals { display: flex; flex-wrap: wrap; gap: 2rem; margin: 1.5rem 0; }
+.token-cost-totals div { display: grid; gap: .6rem; }
+.token-cost-totals strong { font-size: 1.7rem; }
+.token-cost-table { width: 100%; border-collapse: collapse; margin-bottom: 1.5rem; }
+.token-cost-table th, .token-cost-table td { text-align: left; padding: .7rem; border-bottom: 1px solid var(--border); }
+.token-cost-table td:first-child { overflow-wrap: anywhere; }

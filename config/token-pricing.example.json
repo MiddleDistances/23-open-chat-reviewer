@@ -1,0 +1,7 @@
+{
+  "version": "operator-v1",
+  "currency": "USD",
+  "source": "Replace with the source used to verify your rates",
+  "confirmed_at": null,
+  "prices": []
+}
