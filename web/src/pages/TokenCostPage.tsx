@@ -18,6 +18,13 @@ export type CostReport = {
   projects: { id: number; name: string }[];
 };
 
+export function costAmount(currency: string, value: string): string {
+  const [integer, fractional = ""] = value.split(".");
+  const fraction = fractional.replace(/0+$/, "").padEnd(2, "0");
+  const separator = new Intl.NumberFormat().formatToParts(1.1).find((part) => part.type === "decimal")?.value ?? ".";
+  return `${currency} ${BigInt(integer).toLocaleString()}${separator}${fraction}`;
+}
+
 export default function TokenCostPage() {
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
@@ -27,9 +34,7 @@ export default function TokenCostPage() {
     `/api/token-costs/summary?${queryString({ from, to, model, project })}`,
   );
   const currency = data?.price_book?.currency ?? "";
-  const amount = (value: string) => `${currency} ${Number(value).toLocaleString(undefined, {
-    minimumFractionDigits: 2, maximumFractionDigits: 4,
-  })}`;
+  const amount = (value: string) => costAmount(currency, value);
   const rowAmount = (row: CostRow) => row.messages === row.unpriced_messages ? "Not priced" : amount(row.priced_amount);
   return <>
     <PageHeader eyebrow="Archive usage estimates" title="Token costs" />

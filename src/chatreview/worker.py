@@ -77,7 +77,9 @@ def run_cycle(
             with database(settings.database_url) as connection:
                 timesheet_summary = build_timesheet(connection, cutoff=datetime.now(UTC))
 
-        token_cost_summary = build_token_costs(settings.database_url)
+        token_cost_summary = None
+        if status["refresh"]["needs_token_costs"]:
+            token_cost_summary = build_token_costs(settings.database_url)
 
         if summaries is None:
             summaries = _env_bool("CHATREVIEW_ENABLE_SUMMARIES", default=False)

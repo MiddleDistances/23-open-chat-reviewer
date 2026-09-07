@@ -2,7 +2,7 @@ import "@testing-library/jest-dom/vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, expect, it, vi } from "vitest";
-import TokenCostPage, { type CostReport } from "./TokenCostPage";
+import TokenCostPage, { costAmount, type CostReport } from "./TokenCostPage";
 
 const fixture: CostReport = {
   enabled: true, stale: true,
@@ -70,4 +70,9 @@ it("shows unpriced-only usage as not priced rather than a zero-cost estimate", a
   ] });
   expect((await screen.findAllByText("Not priced")).length).toBe(2);
   expect(screen.queryByText("EUR 0.00")).not.toBeInTheDocument();
+});
+
+it("preserves large integer and sub-cent decimal amounts", () => {
+  expect(costAmount("EUR", "9007199254740993.000000000001").replaceAll(",", ""))
+    .toBe("EUR 9007199254740993.000000000001");
 });

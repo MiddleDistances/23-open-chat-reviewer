@@ -336,3 +336,35 @@ def test_archive_rebuild_reuses_stable_cost_snapshot(corpus):
     rebuilt = build_token_costs(settings.database_url)
     assert rebuilt["snapshot_id"] == original["snapshot_id"]
     assert rebuilt["reused"] is True
+
+
+def test_refresh_skips_current_costs_but_rebuilds_after_price_change(corpus, monkeypatch):
+    from typer.testing import CliRunner
+
+    from chatreview.automation import automation_status
+    from chatreview.cli import app
+
+    settings = ingest(corpus, [message()])
+    monkeypatch.setattr("chatreview.cli._settings", lambda *_args: settings)
+    with database(settings.database_url, read_only=True) as connection:
+        assert automation_status(connection)["refresh"]["needs_token_costs"] is False
+    activate(settings)
+    with database(settings.database_url, read_only=True) as connection:
+        assert automation_status(connection)["refresh"]["needs_token_costs"] is True
+    runner = CliRunner()
+    first = runner.invoke(app, ["refresh"])
+    assert first.exit_code == 0, first.output
+    assert "token-costs" in first.output
+    assert report(settings)["stale"] is False
+
+    def unexpected(*_args, **_kwargs):
+        raise AssertionError("unchanged refresh must not enter the cost builder")
+
+    monkeypatch.setattr("chatreview.cli.build_token_costs", unexpected)
+    second = runner.invoke(app, ["refresh"])
+    assert second.exit_code == 0, second.output
+    changed = price_book()
+    changed["version"] = "needs-refresh"
+    activate(settings, changed)
+    with database(settings.database_url, read_only=True) as connection:
+        assert automation_status(connection)["refresh"]["needs_token_costs"] is True
