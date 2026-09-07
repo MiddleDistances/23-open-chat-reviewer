@@ -177,3 +177,5 @@ routes are listed in [SUPPORT.md](SUPPORT.md).
 ## License
 
 Apache License 2.0. See [LICENSE](LICENSE).
+
+Optional [token-cost estimates](docs/TOKEN_COSTS.md) use operator-supplied, versioned pricing and a native archive page.

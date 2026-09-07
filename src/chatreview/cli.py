@@ -66,6 +66,8 @@ from chatreview.timesheets import (
     export_timesheet,
     financial_year_dates,
 )
+from chatreview.token_costs import build_token_costs, import_price_book, token_cost_report
+from chatreview.token_usage import backfill_usage
 from chatreview.worker import run_cycle, run_forever
 from chatreview.writer_setup import WriterInstallError, WriterInstallPlan, install_writer
 
@@ -75,6 +77,8 @@ app = typer.Typer(
     no_args_is_help=True,
     pretty_exceptions_show_locals=False,
 )
+token_costs_app = typer.Typer(help="Import pricing and build optional API-equivalent cost snapshots.")
+app.add_typer(token_costs_app, name="token-costs")
 db_app = typer.Typer(help="Inspect and migrate PostgreSQL.")
 resume_app = typer.Typer(help="Build and inspect evidence-bounded resume cards.")
 semantic_app = typer.Typer(help="Build and inspect optional semantic indexes.")
@@ -582,6 +586,9 @@ def refresh_command(
         with database(settings.database_url) as connection:
             result = build_timesheet(connection, cutoff=datetime.now(UTC), force=force)
         actions.append("timesheet(reused)" if result.reused else "timesheet")
+    costs = build_token_costs(settings.database_url, force=force)
+    if costs["enabled"]:
+        actions.append("token-costs(reused)" if costs["reused"] else "token-costs")
     typer.echo("Refresh complete: " + (", ".join(actions) if actions else "already current"))
 
 
@@ -1060,6 +1067,44 @@ def _human_bytes(value: int) -> str:
             return f"{amount:.1f} {unit}"
         amount /= 1024
     return f"{amount:.1f} TiB"
+
+
+
+
+@token_costs_app.command("import-prices")
+def token_prices_import(path: Path, data_dir: DataDir = None) -> None:
+    """Validate, import and activate an immutable operator price book JSON file."""
+    settings = _settings(data_dir, None, None)
+    try:
+        with database(settings.database_url) as connection:
+            result = import_price_book(connection, json.loads(path.read_text(encoding="utf-8")))
+    except (ValueError, OSError) as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    typer.echo(json.dumps(result))
+
+
+@token_costs_app.command("backfill")
+def token_usage_backfill(data_dir: DataDir = None, force: bool = False) -> None:
+    """Resume usage extraction from retained raw archives, without source filesystem reads."""
+    settings = _settings(data_dir, None, None)
+    typer.echo(json.dumps(backfill_usage(settings.database_url, force=force)))
+
+
+@token_costs_app.command("build")
+def token_costs_build(data_dir: DataDir = None, force: bool = False) -> None:
+    """Build or reuse a cost snapshot for the active price book."""
+    settings = _settings(data_dir, None, None)
+    typer.echo(json.dumps(build_token_costs(settings.database_url, force=force)))
+
+
+@token_costs_app.command("status")
+def token_costs_status(data_dir: DataDir = None) -> None:
+    """Read pricing, coverage and snapshot freshness without refreshing anything."""
+    settings = _settings(data_dir, None, None)
+    with database(settings.database_url, read_only=True) as connection:
+        connection.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+        result = token_cost_report(connection)
+    typer.echo(json.dumps(result, default=str))
 
 
 if __name__ == "__main__":

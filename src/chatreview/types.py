@@ -29,6 +29,19 @@ class Artifact:
 
 
 @dataclass(slots=True)
+class TokenUsage:
+    """Provider-reported counts for one message; no pricing or currency assumptions."""
+
+    model: str
+    service_tier: str | None
+    input_tokens: int
+    output_tokens: int
+    cache_write_5m_tokens: int
+    cache_write_1h_tokens: int
+    cache_read_tokens: int
+
+
+@dataclass(slots=True)
 class ParsedRecord:
     provider: str
     session_external_id: str | None
@@ -45,3 +58,4 @@ class ParsedRecord:
     metadata: dict[str, Any] = field(default_factory=dict)
     fragments: list[TextFragment] = field(default_factory=list)
     artifacts: list[Artifact] = field(default_factory=list)
+    token_usage: TokenUsage | None = None
