@@ -13,6 +13,7 @@ from chatreview.search import corpus_stats
 from chatreview.semantic import corpus_revision
 from chatreview.timesheets import ALGORITHM_VERSION as TIMESHEET_ALGORITHM_VERSION
 from chatreview.timesheets import latest_snapshot
+from chatreview.token_costs import needs_token_costs
 
 SEMANTIC_PROFILES = ("conversation", "episodes")
 
@@ -181,6 +182,7 @@ def automation_status(connection: Session) -> dict[str, Any]:
     )
     needs_episodes = bool(stats["events"] and not episodes_fresh)
     needs_timesheet = not timesheet_fresh
+    costs_need_refresh = needs_token_costs(connection)
     semantic = _semantic_status(
         connection,
         fingerprint=fingerprint,
@@ -207,6 +209,9 @@ def automation_status(connection: Session) -> dict[str, Any]:
     elif needs_timesheet:
         warnings.append("latest timesheet snapshot is stale relative to the active source catalog")
         actions.append("run the timesheet refresh")
+    if costs_need_refresh:
+        warnings.append("token-cost snapshot is missing or stale")
+        actions.append("run the token-cost refresh")
     for profile, item in semantic.items():
         if item.get("latest_attempt_status") == "failed":
             warnings.append(f"latest semantic {profile} attempt failed")
@@ -259,6 +264,7 @@ def automation_status(connection: Session) -> dict[str, Any]:
                 "safe": not blocking_reasons,
                 "needs_episodes": needs_episodes,
                 "needs_timesheet": needs_timesheet,
+                "needs_token_costs": costs_need_refresh,
             },
             "blocking_reasons": blocking_reasons,
             "warnings": warnings,

@@ -586,9 +586,10 @@ def refresh_command(
         with database(settings.database_url) as connection:
             result = build_timesheet(connection, cutoff=datetime.now(UTC), force=force)
         actions.append("timesheet(reused)" if result.reused else "timesheet")
-    costs = build_token_costs(settings.database_url, force=force)
-    if costs["enabled"]:
-        actions.append("token-costs(reused)" if costs["reused"] else "token-costs")
+    if force or after_episodes["refresh"]["needs_token_costs"]:
+        costs = build_token_costs(settings.database_url, force=force)
+        if costs["enabled"]:
+            actions.append("token-costs(reused)" if costs["reused"] else "token-costs")
     typer.echo("Refresh complete: " + (", ".join(actions) if actions else "already current"))
 
 

@@ -76,6 +76,11 @@ def _json(value: Any) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), default=str)
 
 
+def _amount(value: Decimal) -> str:
+    """Serialize exact fixed-point amounts without a float or exponential notation."""
+    return format(value, "f")
+
+
 def _hash(value: Any) -> str:
     return hashlib.sha256(_json(value).encode()).hexdigest()
 
@@ -182,7 +187,7 @@ def _price(row: dict[str, Any], prices: list[TokenPrice]) -> str | None:
     if not candidates:
         return None
     price = max(candidates, key=lambda p: p.effective_from)
-    return str(
+    return _amount(
         sum(
             Decimal(row[field]) * getattr(price, field.removesuffix("_tokens") + "_per_mtok")
             for field in TOKEN_FIELDS
@@ -271,6 +276,13 @@ def _state(connection: Session) -> dict[str, Any]:
     }
 
 
+def needs_token_costs(connection: Session) -> bool:
+    """Gate optional worker jobs; unchanged reports skip backfill and snapshot building."""
+    if _active_book(connection) is None:
+        return False
+    return bool(_state(connection)["stale"])
+
+
 def token_cost_report(
     connection: Session,
     *,
@@ -325,13 +337,13 @@ def token_cost_report(
                 group["priced_amount"] += Decimal(row["cost_amount"])
             if key == "session_id":
                 group.update(session=row["session"], project=row["project"])
-        return [{**g, "priced_amount": str(g["priced_amount"])} for g in grouped.values()]
+        return [{**g, "priced_amount": _amount(g["priced_amount"])} for g in grouped.values()]
 
     unpriced = sorted({r["model"] for r in rows if r["cost_amount"] is None})
     sessions = sorted(aggregate("session_id"), key=lambda r: Decimal(r["priced_amount"]), reverse=True)
     return {
         **state,
-        "priced_amount": str(
+        "priced_amount": _amount(
             sum((Decimal(r["cost_amount"]) for r in rows if r["cost_amount"] is not None), Decimal(0))
         ),
         "tokens": sum(sum(int(r[f]) for f in TOKEN_FIELDS) for r in rows),
@@ -364,4 +376,4 @@ def group_days(rows: list[dict[str, Any]], group_by: str) -> list[dict[str, Any]
         for field in ("messages", "tokens", "unpriced_messages"):
             target[field] += row[field]
         target["priced_amount"] += Decimal(row["priced_amount"])
-    return [{**row, "priced_amount": str(row["priced_amount"])} for row in grouped.values()]
+    return [{**row, "priced_amount": _amount(row["priced_amount"])} for row in grouped.values()]

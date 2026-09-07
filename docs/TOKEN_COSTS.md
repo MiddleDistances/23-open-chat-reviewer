@@ -25,7 +25,9 @@ uv run open-chat-reviewer token-costs build
 uv run open-chat-reviewer token-costs status
 ```
 
-Importing a price book enables costing for the central worker and `refresh`. The source
+Importing a price book enables costing for the central worker and `refresh`. The
+automation status exposes `refresh.needs_token_costs`; an unchanged snapshot skips
+backfill and build work, while disabled costing skips its evidence scan too. The source
 sync wrapper alone does not build cost snapshots. Without an imported price book these
 downstream jobs skip costing. Usage extraction during ingestion remains available as
 queryable evidence independently of pricing.
