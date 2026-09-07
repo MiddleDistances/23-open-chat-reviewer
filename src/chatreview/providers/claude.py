@@ -32,7 +32,9 @@ def extract_token_usage(data: dict[str, Any]) -> TokenUsage | None:
     model = message.get("model")
     if not isinstance(model, str) or not model.strip() or "\x00" in model:
         return None
-    cache = usage.get("cache_creation") or {}
+    cache = usage.get("cache_creation")
+    if cache is None:
+        cache = {}
     if not isinstance(cache, dict):
         return None
     values = [usage.get("input_tokens"), usage.get("output_tokens"),

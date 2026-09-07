@@ -318,3 +318,21 @@ def test_response_blocks_count_usage_once_without_deleting_transcript(corpus):
         assert connection.execute(
             "SELECT count(*) AS n FROM events WHERE role='assistant' AND canonical_event_id IS NULL"
         ).fetchone()["n"] == 2
+
+
+@pytest.mark.parametrize("cache", [0, False, "", [], "invalid"])
+def test_malformed_cache_shapes_are_not_priced(cache):
+    record = message()
+    record["message"]["usage"]["cache_creation"] = cache
+    assert extract_token_usage(record) is None
+
+
+def test_archive_rebuild_reuses_stable_cost_snapshot(corpus):
+    settings = ingest(corpus, [message(), message("second")])
+    activate(settings)
+    original = build_token_costs(settings.database_url)
+    corpus[2].unlink()
+    Ingestor(settings, [ClaudeAdapter(settings.claude_root)]).rebuild_from_archive()
+    rebuilt = build_token_costs(settings.database_url)
+    assert rebuilt["snapshot_id"] == original["snapshot_id"]
+    assert rebuilt["reused"] is True
