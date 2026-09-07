@@ -124,8 +124,9 @@ def _collect(connection: Session, zone: str) -> list[dict[str, Any]]:
             """WITH ranked AS (
             SELECT e.*, row_number() OVER (
                 PARTITION BY src.provider,
-                    coalesce('message:' || (u.usage_json->>'message_id'), 'event:' || e.id::text)
-                ORDER BY e.timestamp DESC NULLS LAST, e.id DESC
+                    coalesce('message:' || (u.usage_json->>'message_id'), 'event:' || e.event_key)
+                ORDER BY e.timestamp DESC NULLS LAST, e.source_revision_id DESC,
+                         e.line_no DESC, e.event_key DESC
             ) AS usage_rank
             FROM events e JOIN sources src ON src.id=e.source_id
             LEFT JOIN event_token_usage u ON u.event_id=e.id
@@ -139,7 +140,7 @@ def _collect(connection: Session, zone: str) -> list[dict[str, Any]]:
              WHEN u.event_id IS NULL OR u.extraction_version<>? THEN 'pending'
              ELSE u.status END AS usage_status,
         count(*) AS messages,
-        md5(string_agg(e.id::text || ':' || e.content_hash, ',' ORDER BY e.id)) AS evidence_hash,
+        md5(string_agg(e.event_key || ':' || e.content_hash, ',' ORDER BY e.event_key)) AS evidence_hash,
         sum(coalesce((u.usage_json->>'input_tokens')::numeric,0)) AS input_tokens,
         sum(coalesce((u.usage_json->>'output_tokens')::numeric,0)) AS output_tokens,
         sum(coalesce((u.usage_json->>'cache_write_5m_tokens')::numeric,0)) AS cache_write_5m_tokens,
