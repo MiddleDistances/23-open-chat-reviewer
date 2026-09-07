@@ -14,7 +14,7 @@ from chatreview.providers.base import (
 )
 from chatreview.types import Artifact, ParsedRecord, SourceSpec, TextFragment, TokenUsage
 
-TOKEN_USAGE_VERSION = 1
+TOKEN_USAGE_VERSION = 2
 
 
 def extract_token_usage(data: dict[str, Any]) -> TokenUsage | None:
@@ -30,7 +30,7 @@ def extract_token_usage(data: dict[str, Any]) -> TokenUsage | None:
     if not isinstance(usage, dict):
         return None
     model = message.get("model")
-    if not isinstance(model, str) or not model.strip():
+    if not isinstance(model, str) or not model.strip() or "\x00" in model:
         return None
     cache = usage.get("cache_creation") or {}
     if not isinstance(cache, dict):
@@ -45,9 +45,12 @@ def extract_token_usage(data: dict[str, Any]) -> TokenUsage | None:
     if type(total) is not int or not five + hour <= total <= 2**63 - 1:
         return None
     tier = usage.get("service_tier")
-    if tier is not None and not isinstance(tier, str):
+    if tier is not None and (not isinstance(tier, str) or "\x00" in tier):
         return None
-    return TokenUsage(model.strip(), tier, inp, out, total - hour, hour, read)
+    message_id = message.get("id")
+    if not isinstance(message_id, str) or not message_id.strip() or "\x00" in message_id:
+        message_id = None
+    return TokenUsage(model.strip(), tier, inp, out, total - hour, hour, read, message_id)
 
 
 class ClaudeAdapter(ProviderAdapter):

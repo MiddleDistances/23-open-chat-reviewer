@@ -1,4 +1,4 @@
-.token-cost-filters { flex-wrap: wrap; }
+.filter-bar.token-cost-filters { flex-wrap: wrap; height: auto; align-items: end; padding: 1rem; }
 .token-cost-filters label { display: grid; gap: .4rem; }
 .token-cost-provenance { margin: 1.5rem 0; padding: 1rem; border: 1px solid var(--border); border-radius: 12px; }
 .token-cost-provenance p { margin: .5rem 0; overflow-wrap: anywhere; }

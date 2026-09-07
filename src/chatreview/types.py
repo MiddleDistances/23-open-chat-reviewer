@@ -28,7 +28,7 @@ class Artifact:
     label: str | None = None
 
 
-@dataclass(slots=True)
+@dataclass(frozen=True, slots=True)
 class TokenUsage:
     """Provider-reported counts for one message; no pricing or currency assumptions."""
 
@@ -39,6 +39,7 @@ class TokenUsage:
     cache_write_5m_tokens: int
     cache_write_1h_tokens: int
     cache_read_tokens: int
+    message_id: str | None = None
 
 
 @dataclass(slots=True)

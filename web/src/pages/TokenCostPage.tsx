@@ -30,9 +30,11 @@ export default function TokenCostPage() {
   const amount = (value: string) => `${currency} ${Number(value).toLocaleString(undefined, {
     minimumFractionDigits: 2, maximumFractionDigits: 4,
   })}`;
+  const rowAmount = (row: CostRow) => row.messages === row.unpriced_messages ? "Not priced" : amount(row.priced_amount);
   return <>
     <PageHeader eyebrow="Archive usage estimates" title="Token costs" />
-    <p>API-equivalent estimates from recorded usage. Subscription payments and invoices may differ.</p>
+    <p>API-equivalent estimates from recorded usage. Per-message output counts can be provisional;
+      subscription payments and invoices may differ.</p>
     <div className="filter-bar token-cost-filters">
       <label>From<input aria-label="From" type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></label>
       <label>To<input aria-label="To" type="date" value={to} onChange={(e) => setTo(e.target.value)} /></label>
@@ -68,7 +70,9 @@ export default function TokenCostPage() {
       </section>}
       {data.snapshot && <>
         <section className="token-cost-totals" aria-label="Cost totals">
-          <div><span>Priced usage estimate</span><strong>{amount(data.priced_amount)}</strong></div>
+          <div><span>Priced usage estimate</span><strong>
+            {data.messages > 0 && data.messages === data.unpriced_messages ? "Not priced" : amount(data.priced_amount)}
+          </strong></div>
           <div><span>Recorded tokens</span><strong>{formatNumber(data.tokens)}</strong></div>
           <div><span>Messages with usage</span><strong>{formatNumber(data.messages)}</strong></div>
         </section>
@@ -77,14 +81,15 @@ export default function TokenCostPage() {
           estimate. Models: {data.unpriced_models.join(", ")}.
         </p>}
         <p>Snapshot usage coverage: {data.snapshot.coverage_json.available} of {data.snapshot.coverage_json.total}
-          {" "}canonical assistant messages. Missing, unavailable, pending, and unsupported usage is excluded.</p>
+          {" "}canonical assistant messages. Missing, unavailable, pending, unsupported usage and repeated
+          response blocks are excluded.</p>
         <p>Current archive coverage: {data.coverage.available} of {data.coverage.total} messages.
           {" "}Report generated {new Date(data.snapshot.generated_at).toLocaleString()}.</p>
         <h2>By model</h2>
         <div className="archive-table-wrap"><table className="token-cost-table"><thead><tr>
           <th>Model</th><th>Tokens</th><th>Priced estimate</th><th>Unpriced messages</th>
         </tr></thead><tbody>{data.models.map((row) => <tr key={row.model}>
-          <td>{row.model}</td><td>{formatNumber(row.tokens)}</td><td>{amount(row.priced_amount)}</td>
+          <td>{row.model}</td><td>{formatNumber(row.tokens)}</td><td>{rowAmount(row)}</td>
           <td>{row.unpriced_messages}</td>
         </tr>)}</tbody></table></div>
         <h2>By day</h2>
@@ -92,7 +97,7 @@ export default function TokenCostPage() {
           <th>Day</th><th>Tokens</th><th>Priced estimate</th><th>Unpriced messages</th>
         </tr></thead><tbody>{data.daily.map((row) => <tr key={row.day ?? "undated"}>
           <td>{row.day ?? "Undated"}</td><td>{formatNumber(row.tokens)}</td>
-          <td>{amount(row.priced_amount)}</td><td>{row.unpriced_messages}</td>
+          <td>{rowAmount(row)}</td><td>{row.unpriced_messages}</td>
         </tr>)}</tbody></table></div>
         <h2>Sessions by estimated cost</h2>
         <p>Up to 50 sessions matching these filters.</p>
@@ -100,7 +105,7 @@ export default function TokenCostPage() {
           <th>Session</th><th>Project</th><th>Priced estimate</th><th>Unpriced messages</th>
         </tr></thead><tbody>{data.sessions.map((row) => <tr key={row.session_id ?? "unattributed"}>
           <td>{row.session_id ? <Link to={`/sessions/${row.session_id}`}>{row.session}</Link> : row.session}</td>
-          <td>{row.project}</td><td>{amount(row.priced_amount)}</td><td>{row.unpriced_messages}</td>
+          <td>{row.project}</td><td>{rowAmount(row)}</td><td>{row.unpriced_messages}</td>
         </tr>)}</tbody></table></div>
         {data.messages === 0 && <EmptyState title="No recorded usage matches these filters">
           Try another date range or model. Missing usage is not counted as zero-cost activity.
