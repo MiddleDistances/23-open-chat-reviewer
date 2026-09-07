@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import json
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date
 from decimal import Decimal
 
@@ -233,3 +234,87 @@ def test_read_only_api_no_backfill_and_empty_archive(corpus):
     assert client.get("/api/token-costs/daily?group_by=month").json()["daily"][0]["day"] == "2026-07-01"
     assert client.get("/api/token-costs/summary?from=2026-08-01&to=2026-07-01").status_code == 422
     assert migrate(settings.database_url) == []
+
+
+def test_concurrent_builds_publish_one_snapshot(corpus):
+    settings = ingest(corpus, [message()])
+    activate(settings)
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(executor.map(lambda _: build_token_costs(settings.database_url), range(2)))
+    assert results[0]["snapshot_id"] == results[1]["snapshot_id"]
+    assert sum(not row["reused"] for row in results) == 1
+
+
+def test_failed_build_preserves_previous_snapshot(corpus, monkeypatch):
+    settings = ingest(corpus, [message()])
+    activate(settings)
+    old = build_token_costs(settings.database_url)
+    book = price_book()
+    book["version"] = "failing-build"
+    activate(settings, book)
+
+    def fail(*_args):
+        raise RuntimeError("synthetic calculation failure")
+
+    monkeypatch.setattr("chatreview.token_costs._price", fail)
+    with pytest.raises(RuntimeError, match="synthetic"):
+        build_token_costs(settings.database_url)
+    result = report(settings)
+    assert result["snapshot"]["id"] == old["snapshot_id"]
+    assert result["stale"] is True
+    with database(settings.database_url, read_only=True) as connection:
+        assert connection.execute("SELECT count(*) AS n FROM token_cost_snapshots").fetchone()["n"] == 1
+
+
+def test_unattributed_and_changed_project_invalidate_without_mutating_snapshot(corpus):
+    settings = ingest(corpus, [message()])
+    activate(settings)
+    with database(settings.database_url) as connection:
+        connection.execute("UPDATE sessions SET project_id=NULL, project=NULL")
+    build_token_costs(settings.database_url)
+    original = report(settings, project=0)
+    assert original["messages"] == 1
+    assert original["sessions"][0]["project"] == "Unattributed"
+    with database(settings.database_url) as connection:
+        connection.execute("UPDATE sessions SET project='New synthetic attribution'")
+    assert report(settings)["stale"] is True
+    assert report(settings)["sessions"][0]["project"] == "Unattributed"
+    build_token_costs(settings.database_url)
+    assert report(settings)["sessions"][0]["project"] == "New synthetic attribution"
+
+
+def test_operator_cli_import_build_status(corpus, tmp_path, monkeypatch):
+    from typer.testing import CliRunner
+
+    from chatreview.cli import app
+
+    settings = ingest(corpus, [message()])
+    monkeypatch.setattr("chatreview.cli._settings", lambda *_args: settings)
+    path = tmp_path / "pricing.json"
+    path.write_text(json.dumps(price_book()))
+    runner = CliRunner()
+    imported = runner.invoke(app, ["token-costs", "import-prices", str(path)])
+    assert imported.exit_code == 0, imported.output
+    built = runner.invoke(app, ["token-costs", "build"])
+    assert built.exit_code == 0, built.output
+    status = runner.invoke(app, ["token-costs", "status"])
+    assert status.exit_code == 0, status.output
+    assert json.loads(status.output)["stale"] is False
+
+
+def test_response_blocks_count_usage_once_without_deleting_transcript(corpus):
+    first = message("block-a")
+    second = message("block-b", timestamp="2026-07-18T23:31:00Z")
+    first["message"]["id"] = second["message"]["id"] = "synthetic-response-id"
+    second["message"]["usage"]["output_tokens"] = 200_000
+    settings = ingest(corpus, [first, second])
+    activate(settings)
+    build_token_costs(settings.database_url)
+    result = report(settings)
+    assert result["messages"] == 1
+    assert result["coverage"]["duplicate"] == 1
+    assert Decimal(result["priced_amount"]) == Decimal("2.8015")
+    with database(settings.database_url, read_only=True) as connection:
+        assert connection.execute(
+            "SELECT count(*) AS n FROM events WHERE role='assistant' AND canonical_event_id IS NULL"
+        ).fetchone()["n"] == 2

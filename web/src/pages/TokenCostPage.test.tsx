@@ -63,3 +63,11 @@ it("shows request errors", async () => {
   render(<MemoryRouter><TokenCostPage /></MemoryRouter>);
   expect(await screen.findByText("Archive unavailable")).toBeInTheDocument();
 });
+
+it("shows unpriced-only usage as not priced rather than a zero-cost estimate", async () => {
+  show({ ...fixture, messages: 1, unpriced_messages: 1, priced_amount: "0", models: [
+    { model: "unknown", messages: 1, tokens: 100, unpriced_messages: 1, priced_amount: "0" },
+  ] });
+  expect((await screen.findAllByText("Not priced")).length).toBe(2);
+  expect(screen.queryByText("EUR 0.00")).not.toBeInTheDocument();
+});

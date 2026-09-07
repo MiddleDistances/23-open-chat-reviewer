@@ -87,7 +87,18 @@ A failed build leaves the previous snapshot available; a retry can reuse a compl
 matching snapshot. There is no moving wall-clock cutoff in the key. The fingerprint
 includes canonical evidence identity, usage, session/project attribution and local day,
 combined with extraction/calculation versions, pricing content hash and timezone.
-Canonical deduplication uses the archive's existing `canonical_event_id IS NULL` contract.
+Canonical deduplication first uses the archive's existing `canonical_event_id IS NULL`
+contract. Claude can emit different content blocks with the same nested response
+`message.id`; the cost projection counts the latest recorded usage for each response
+ID once, leaving all canonical transcript events unchanged. Repeated response blocks
+are separately reported as duplicate coverage. Older records without a response ID
+use event identity and therefore only receive the archive's canonical deduplication.
+
+These are estimates of the recorded tokens, not complete request billing. Claude's
+[cost-tracking documentation](https://code.claude.com/docs/en/agent-sdk/cost-tracking)
+notes that per-message output counts can be provisional and repeated tool blocks share
+response IDs. This feature does not sum cumulative result messages into per-message
+counts. It does not infer regional premiums, request/tool fees, or missing final output.
 
 The first implementation computes freshness from grouped canonical evidence on reads;
 it performs no refresh writes, but this scan can be significant on very large archives.
@@ -109,7 +120,8 @@ means unattributed). The session limit is 1–500. Amounts are serialized as dec
 strings. All returned aggregates use one snapshot. Missing prices/timestamps count as
 unpriced messages and never contribute to the priced subtotal. Coverage includes all
 canonical assistant messages, with available/missing/unavailable/pending/unsupported
-counts; it is archive-wide rather than restricted to the report's filters.
+counts, plus repeated response blocks; it is archive-wide rather than restricted to
+the report's filters.
 
 When stale, the report identifies its original price book/currency and separately names
 the active book for the next build. The UI distinguishes snapshot coverage from current

@@ -121,11 +121,21 @@ def _collect(connection: Session, zone: str) -> list[dict[str, Any]]:
     return [
         dict(row)
         for row in connection.execute(
-            """SELECT src.provider, e.session_id, coalesce(s.title,s.external_id,'Unattributed') AS session,
+            """WITH ranked AS (
+            SELECT e.*, row_number() OVER (
+                PARTITION BY src.provider,
+                    coalesce('message:' || (u.usage_json->>'message_id'), 'event:' || e.id::text)
+                ORDER BY e.timestamp DESC NULLS LAST, e.id DESC
+            ) AS usage_rank
+            FROM events e JOIN sources src ON src.id=e.source_id
+            LEFT JOIN event_token_usage u ON u.event_id=e.id
+            WHERE e.canonical_event_id IS NULL AND e.role='assistant')
+            SELECT src.provider, e.session_id, coalesce(s.title,s.external_id,'Unattributed') AS session,
         s.project_id, coalesce(p.name,s.project,'Unattributed') AS project,
         (e.timestamp AT TIME ZONE ?)::date AS day,
         u.usage_json->>'model' AS model, u.usage_json->>'service_tier' AS service_tier,
-        CASE WHEN src.provider<>'claude' THEN 'unsupported'
+        CASE WHEN e.usage_rank>1 THEN 'duplicate'
+             WHEN src.provider<>'claude' THEN 'unsupported'
              WHEN u.event_id IS NULL OR u.extraction_version<>? THEN 'pending'
              ELSE u.status END AS usage_status,
         count(*) AS messages,
@@ -135,7 +145,7 @@ def _collect(connection: Session, zone: str) -> list[dict[str, Any]]:
         sum(coalesce((u.usage_json->>'cache_write_5m_tokens')::numeric,0)) AS cache_write_5m_tokens,
         sum(coalesce((u.usage_json->>'cache_write_1h_tokens')::numeric,0)) AS cache_write_1h_tokens,
         sum(coalesce((u.usage_json->>'cache_read_tokens')::numeric,0)) AS cache_read_tokens
-        FROM events e JOIN sources src ON src.id=e.source_id
+        FROM ranked e JOIN sources src ON src.id=e.source_id
         LEFT JOIN sessions s ON s.id=e.session_id LEFT JOIN projects p ON p.id=s.project_id
         LEFT JOIN event_token_usage u ON u.event_id=e.id
         WHERE e.canonical_event_id IS NULL AND e.role='assistant'
@@ -146,7 +156,9 @@ def _collect(connection: Session, zone: str) -> list[dict[str, Any]]:
 
 
 def _coverage(rows: list[dict[str, Any]]) -> dict[str, int]:
-    result = dict.fromkeys(("total", "available", "missing", "unavailable", "unsupported", "pending"), 0)
+    result = dict.fromkeys(
+        ("total", "available", "missing", "unavailable", "unsupported", "pending", "duplicate"), 0
+    )
     for row in rows:
         result["total"] += row["messages"]
         result[row["usage_status"]] += row["messages"]
@@ -283,7 +295,10 @@ def token_cost_report(
         if snapshot
         else []
     )
-    projects = sorted({(r["project_id"] or 0, r["project"]) for r in rows}, key=lambda p: (p[1], p[0]))
+    projects = sorted(
+        {(r["project_id"] or 0, r["project"] if r["project_id"] else "Unattributed") for r in rows},
+        key=lambda p: (p[1], p[0]),
+    )
     rows = [
         r
         for r in rows
