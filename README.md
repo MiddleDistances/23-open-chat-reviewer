@@ -71,6 +71,12 @@ cd 23-open-chat-reviewer
 scripts/install.sh
 ```
 
+For the easiest correct install, **just get Astra to do it.** Open this repository
+with Astra and ask: "Install Open Chat Reviewer using the README, fix any setup
+errors, and verify that the Setup page opens on my computer." If a manual install
+does not work, give Astra the error message. Keep `.chatreview/`, database URLs,
+tokens, and raw chats out of public issues and chat messages you do not control.
+
 Open the URL printed by `bootstrap.sh`. By default, Open Chat Reviewer looks for:
 
 - Codex in `~/.codex`
