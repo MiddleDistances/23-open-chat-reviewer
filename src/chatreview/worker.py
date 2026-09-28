@@ -62,6 +62,10 @@ def run_cycle(
         if not acquired:
             report("another worker cycle is already active; skipping")
             return None
+        # Session-level advisory locks survive commit. End the transaction opened
+        # by pg_try_advisory_lock before the long sync/derivation pass; otherwise
+        # PostgreSQL can close this idle-in-transaction connection mid-cycle.
+        lock_connection.commit()
         sync = sync_sources(
             settings,
             providers=providers,
