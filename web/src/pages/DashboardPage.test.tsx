@@ -148,4 +148,41 @@ describe("resume dashboard", () => {
     expect(screen.queryByText("Nothing in this view")).not.toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith("/api/sessions?limit=20", expect.anything());
   });
+
+  it("shows newer archive evidence and failed summary freshness separately", async () => {
+    const fetchMock = vi.fn((input: string) => Promise.resolve({
+      ok: true,
+      status: 200,
+      json: async () => input.startsWith("/api/sessions")
+        ? [{
+            id: 77,
+            session_key: "codex:77",
+            provider: "codex",
+            external_id: "01a050f3",
+            project: "Current work",
+            cwd: "/home/example/Current work",
+            started_at: "2026-09-28T12:00:00Z",
+            ended_at: "2026-09-28T12:45:54Z",
+            title: null,
+            event_count: 15,
+            text_unit_count: 10,
+          }]
+        : {
+            ...response,
+            latest_source_activity_at: "2026-09-28T12:45:54Z",
+            latest_run: { ...response.latest_run, status: "failed" },
+          },
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<MemoryRouter><DashboardPage /></MemoryRouter>);
+
+    expect(await screen.findByText("Newer archive activity")).toBeInTheDocument();
+    expect(screen.getByText(/latest summary refresh failed/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/summary saved/i)).toHaveLength(2);
+    expect(await screen.findByRole("link", { name: /Current work/i })).toHaveAttribute(
+      "href", "/trace/77",
+    );
+    expect(fetchMock).toHaveBeenCalledWith("/api/sessions?limit=20", expect.anything());
+  });
 });

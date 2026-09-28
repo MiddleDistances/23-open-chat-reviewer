@@ -1823,6 +1823,31 @@ body {
   font-size: 13px;
   line-height: 1.55;
 }
+.resume-freshness-note {
+  margin-bottom: 28px;
+  padding: 18px 20px;
+  border-left: 4px solid #b56a00;
+  border-radius: 4px;
+  background: #fff5e6;
+  color: #393c41;
+  font-size: 13px;
+  line-height: 1.55;
+}
+.resume-freshness-note strong {
+  display: block;
+  color: #171a20;
+  font-size: 15px;
+}
+.resume-freshness-note p {
+  margin: 8px 0 0;
+}
+.resume-freshness-note ul {
+  margin: 12px 0;
+  padding-left: 20px;
+}
+.resume-freshness-note a {
+  color: #2456c4;
+}
 .resume-filters {
   display: flex;
   gap: 6px;
