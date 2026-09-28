@@ -57,6 +57,14 @@ archive rows, and all other checksum mismatches remain fatal. Take a schema back
 `db doctor` followed by `db migrate` before pointing the web process at an established
 database.
 
+The predecessor also used migration versions 0015 and 0016 for human summaries and
+incremental semantic state. Their exact checksums and relation shapes are accepted;
+public token usage and cost tables are then added under versions 0020 and 0021. The
+existing archive rows and predecessor migration records are left in place. `db doctor`
+checks recorded migration fingerprints before the web process starts, while `db migrate`
+applies the additive tables. Keep the predecessor database and its backup available until
+the public web and worker have both been verified against it.
+
 ## Background services
 
 Linux user services:
