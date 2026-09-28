@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import subprocess
+import sys
+
 from fastapi.testclient import TestClient
 
 from chatreview.api import create_app
@@ -35,6 +38,26 @@ def test_normalize_call_uses_provider_neutral_actions() -> None:
         "exec",
         'const result = await tools.exec_command({ cmd: "uv run pytest -q" });',
     ) == ("test", "test:pytest")
+    assert normalize_call(
+        "exec",
+        r'const result = await tools.exec_command({ cmd: "echo \"hello\"" });',
+    ) == ("execute", "execute:echo")
+
+
+def test_exec_wrapper_with_unclosed_escaped_command_finishes_promptly() -> None:
+    code = (
+        "from chatreview.trace import normalize_call; "
+        "value = 'tools.exec_command({cmd:\"' + chr(92) * 48; "
+        "print(normalize_call('exec', value))"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        capture_output=True,
+        text=True,
+        timeout=2,
+        check=True,
+    )
+    assert result.stdout.strip() == "('execute', 'execute:shell')"
 
 
 def test_session_trace_projects_occurrences_and_exact_calls(corpus) -> None:
