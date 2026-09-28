@@ -166,6 +166,18 @@ describe("resume dashboard", () => {
             title: null,
             event_count: 15,
             text_unit_count: 10,
+          }, {
+            id: 78,
+            session_key: "codex:78",
+            provider: "codex",
+            external_id: "01a050f4",
+            project: "Current work",
+            cwd: "/home/example/Current work",
+            started_at: "2026-09-28T11:00:00Z",
+            ended_at: "2026-09-28T12:00:00Z",
+            title: null,
+            event_count: 10,
+            text_unit_count: 6,
           }]
         : {
             ...response,
@@ -183,6 +195,7 @@ describe("resume dashboard", () => {
     expect(await screen.findByRole("link", { name: /Current work/i })).toHaveAttribute(
       "href", "/trace/77",
     );
+    expect(screen.getAllByRole("link", { name: /Current work/i })).toHaveLength(1);
     expect(fetchMock).toHaveBeenCalledWith("/api/sessions?limit=20", expect.anything());
   });
 });
