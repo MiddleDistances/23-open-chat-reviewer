@@ -78,6 +78,13 @@ export default function DashboardPage() {
     const activeAt = session.ended_at ?? session.started_at;
     return activeAt && newestSummarizedActivity && Date.parse(activeAt) > Date.parse(newestSummarizedActivity);
   });
+  const seenProjects = new Set<string>();
+  const recentProjects = newerSessions.filter((session) => {
+    const project = session.project ?? session.external_id;
+    if (seenProjects.has(project)) return false;
+    seenProjects.add(project);
+    return true;
+  }).slice(0, 5);
   const refreshFailed = data.latest_run?.status === "failed" || data.latest_run?.status === "partial";
 
   return (
@@ -91,9 +98,9 @@ export default function DashboardPage() {
             current position, and next consequential move.
           </p>
         </div>
-        <div className="resume-overview" aria-label={`${openCount} open work threads`}>
+        <div className="resume-overview" aria-label={`${openCount} saved open work threads`}>
           <strong>{openCount}</strong>
-          <span>open threads</span>
+          <span>saved open threads</span>
           <small>
             {newestSummary ? `Latest summary saved ${formatRecency(newestSummary)}` : "No summary saved"}
           </small>
@@ -113,9 +120,9 @@ export default function DashboardPage() {
           {refreshFailed && <p>The latest summary refresh failed. Saved summaries remain available.</p>}
           {sessionsLoading && archiveIsNewer && <p>Loading newer conversations…</p>}
           {sessionsError && archiveIsNewer && <ErrorNotice message={sessionsError} />}
-          {newerSessions.length > 0 && (
+          {recentProjects.length > 0 && (
             <ul>
-              {newerSessions.slice(0, 5).map((session) => (
+              {recentProjects.map((session) => (
                 <li key={session.id}>
                   <Link to={`/trace/${session.id}`}>
                     {session.title || projectName(session.project)} · {session.provider} ·
