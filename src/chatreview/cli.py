@@ -1007,7 +1007,7 @@ def worker_run(
         bool,
         typer.Option("--git/--no-git", envvar="CHATREVIEW_ENABLE_GIT"),
     ] = True,
-    interval: Annotated[int, typer.Option(min=60, envvar="CHATREVIEW_SYNC_INTERVAL")] = 21_600,
+    interval: Annotated[int, typer.Option(min=60, envvar="CHATREVIEW_SYNC_INTERVAL")] = 900,
     sync_workers: Annotated[int, typer.Option(min=1)] = 1,
     summaries: Annotated[
         bool | None,

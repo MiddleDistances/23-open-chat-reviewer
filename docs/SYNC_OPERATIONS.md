@@ -85,12 +85,12 @@ Git discovery is enabled by default and can be disabled with
 
 ```bash
 uv run open-chat-reviewer worker once
-uv run open-chat-reviewer worker run --interval 21600
+uv run open-chat-reviewer worker run --interval 900
 ```
 
 Each cycle checks and migrates the schema, acquires a PostgreSQL advisory lock, syncs
 sources, refreshes episodes, refreshes a stale timesheet snapshot, and optionally refreshes
-summary cards. The default six-hour interval is configurable with
+summary cards. The default 15-minute interval is configurable with
 `CHATREVIEW_SYNC_INTERVAL`.
 
 Enable summaries only after configuring a provider:
