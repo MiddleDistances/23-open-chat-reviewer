@@ -114,7 +114,7 @@ def run_cycle(
 def run_forever(
     settings: Settings,
     *,
-    interval_seconds: int = 21_600,
+    interval_seconds: int = 900,
     providers: set[str] | None = None,
     sync_workers: int = 1,
     summaries: bool | None = None,
