@@ -95,3 +95,9 @@ Migration 0023 retires the unused contents trigram index after a complete deploy
 review; the index is no longer automatically rebuilt. Keep full-text and artifact substring
 indexes. Audit and compact other relations only when measurements demonstrate waste;
 allocated bytes and estimated dead-row counts alone do not establish reclaimable bytes.
+
+Migration 0025 makes the retired-writer guard part of the versioned schema. Reclamation
+activates it atomically through maintenance state; upgrading an already reclaimed archive
+preserves its active guard. Existing canonical (`v1:`) identities must match their full
+membership fingerprints. Legacy duplicate set IDs remain readable for compatibility; new
+writes reuse the canonical representative after exact membership comparison.

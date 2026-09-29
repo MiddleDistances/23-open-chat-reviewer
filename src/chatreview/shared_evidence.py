@@ -78,7 +78,8 @@ def calculation_fingerprint(connection: Session, timezone_name: str) -> str:
     payload["sessions"] = [
         r["value"]
         for r in connection.execute(
-            """SELECT jsonb_build_array(id,project_id,contributor_id,parent_session_id)::text AS value
+            """SELECT jsonb_build_array(id,project_id,contributor_id,parent_session_id,
+               provider,external_id,machine_id)::text AS value
            FROM sessions ORDER BY id"""
         ).fetchall()
     ]

@@ -67,11 +67,15 @@ def require_target(connection: Session, target: str | None) -> None:
 def prepare_shared_sets(connection: Session) -> None:
     """Validate and register canonical fingerprints for predecessor sets without renumbering them."""
     connection.execute(f"""CREATE TEMP TABLE storage_existing ON COMMIT DROP AS
-        SELECT s.id,s.member_count,count(m.event_id) AS actual,{FINGERPRINT_SQL} AS fingerprint
+        SELECT s.id,s.fingerprint AS stored_fingerprint,s.member_count,
+               count(m.event_id) AS actual,{FINGERPRINT_SQL} AS fingerprint
         FROM timesheet_evidence_sets s LEFT JOIN timesheet_evidence_members m ON m.evidence_set_id=s.id
         GROUP BY s.id""")
     if connection.execute("SELECT 1 FROM storage_existing WHERE member_count<>actual LIMIT 1").fetchone():
         raise ValueError("Existing shared evidence member count mismatch")
+    if connection.execute("""SELECT 1 FROM storage_existing
+        WHERE stored_fingerprint LIKE 'v1:%' AND stored_fingerprint<>fingerprint LIMIT 1""").fetchone():
+        raise ValueError("Existing canonical evidence fingerprint mismatch")
     # Identical sets may predate canonical fingerprints. Keep every ID, register one representative.
     connection.execute("""UPDATE timesheet_evidence_sets s SET fingerprint=x.fingerprint
         FROM (SELECT fingerprint,min(id) AS id FROM storage_existing GROUP BY fingerprint) x
@@ -220,10 +224,11 @@ def verify(connection: Session) -> dict[str, int]:
         LEFT JOIN storage_interval_verification p ON p.interval_id=w.id
         WHERE p.interval_id IS NULL OR p.evidence_set_id IS DISTINCT FROM w.evidence_set_id
         OR p.member_count<>w.evidence_count""").fetchone()["n"]
-    corrupt = connection.execute("""SELECT count(*) AS n FROM (
+    corrupt = connection.execute(f"""SELECT count(*) AS n FROM (
         SELECT s.id FROM timesheet_evidence_sets s
         LEFT JOIN timesheet_evidence_members m ON m.evidence_set_id=s.id
-        GROUP BY s.id HAVING s.member_count<>count(m.event_id)) x""").fetchone()["n"]
+        GROUP BY s.id HAVING s.member_count<>count(m.event_id)
+        OR (s.fingerprint LIKE 'v1:%' AND s.fingerprint<>({FINGERPRINT_SQL}))) x""").fetchone()["n"]
     return {"uncertified_intervals": int(missing), "invalid_sets": int(corrupt)}
 
 
@@ -240,13 +245,10 @@ def reclaim(connection: Session) -> dict[str, int]:
         "SELECT pg_total_relation_size('work_interval_evidence') AS bytes"
     ).fetchone()["bytes"]
     connection.execute("TRUNCATE TABLE work_interval_evidence")
-    # Old binaries must fail visibly rather than resurrect the storage leak.
-    connection.execute("""CREATE OR REPLACE FUNCTION reject_legacy_evidence_writes()
-        RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
-        RAISE EXCEPTION 'Legacy timesheet evidence retired; deploy shared-evidence writer'; END $$""")
-    connection.execute("DROP TRIGGER IF EXISTS retired_evidence_writes ON work_interval_evidence")
-    connection.execute("""CREATE TRIGGER retired_evidence_writes BEFORE INSERT OR UPDATE
-        ON work_interval_evidence FOR EACH STATEMENT EXECUTE FUNCTION reject_legacy_evidence_writes()""")
+    # The migration-defined guard is activated atomically with reclamation.
+    connection.execute("""INSERT INTO schema_meta(key,value)
+        VALUES ('timesheet_legacy_evidence_retired','1')
+        ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value""")
     connection.commit()
     after = connection.execute("SELECT pg_total_relation_size('work_interval_evidence') AS bytes").fetchone()[
         "bytes"

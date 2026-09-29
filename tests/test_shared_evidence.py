@@ -152,6 +152,8 @@ def test_existing_shared_schema_upgrade_and_source_preservation(archive):
         c.execute("DROP TABLE storage_interval_verification,storage_maintenance_progress")
         c.execute("ALTER TABLE timesheet_snapshots DROP COLUMN calculation_fingerprint")
         c.execute("DROP FUNCTION protect_inserted_evidence_members() CASCADE")
+        c.execute("DROP FUNCTION reject_legacy_evidence_writes() CASCADE")
+        c.execute("DELETE FROM schema_meta WHERE key='timesheet_legacy_evidence_retired'")
         c.execute("DELETE FROM chatreview_schema_migrations WHERE version>=22")
     migrate(archive)
     with database(archive) as c:
@@ -255,3 +257,67 @@ def test_selected_environment_never_falls_back_to_ambient_database(tmp_path, mon
     result = CliRunner().invoke(storage.app, ["audit", "--env-file", str(selected)])
     assert result.exit_code != 0
     assert "Selected environment file" in result.output
+
+
+def test_migration_preserves_already_reclaimed_guard(archive):
+    from chatreview.db import migrate
+
+    with database(archive) as c:
+        c.execute("DELETE FROM chatreview_schema_migrations WHERE version=25")
+        c.execute("DELETE FROM schema_meta WHERE key='timesheet_legacy_evidence_retired'")
+        c.execute("""CREATE OR REPLACE FUNCTION reject_legacy_evidence_writes()
+            RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
+            RAISE EXCEPTION 'Legacy timesheet evidence retired'; END $$""")
+    migrate(archive)
+    with pytest.raises(psycopg.errors.RaiseException), database(archive) as c:
+        c.execute("INSERT INTO work_interval_evidence SELECT * FROM effective_work_interval_evidence")
+
+
+@pytest.mark.parametrize("field,value", [("provider", "git"), ("external_id", "changed-external")])
+def test_session_attribution_fields_invalidate_calculation(archive, field, value):
+    from chatreview.shared_evidence import calculation_fingerprint
+
+    with database(archive) as c:
+        before = calculation_fingerprint(c, "UTC")
+        c.execute(f"UPDATE sessions SET {field}=? WHERE id=(SELECT min(id) FROM sessions)", (value,))
+        assert calculation_fingerprint(c, "UTC") != before
+
+
+def test_corrupt_canonical_identity_is_rejected(archive):
+    with database(archive) as c:
+        c.execute("UPDATE timesheet_evidence_sets SET fingerprint='v1:corrupt' "
+                  "WHERE id=(SELECT min(id) FROM timesheet_evidence_sets)")
+        c.commit()
+        assert verify(c)['invalid_sets'] == 1
+        with pytest.raises(ValueError, match="canonical evidence fingerprint mismatch"):
+            prepare_shared_sets(c)
+
+
+def test_legacy_duplicate_keeps_memberships_and_reuses_canonical_set(archive):
+    with database(archive) as c:
+        original = c.execute(
+            "SELECT id,member_count FROM timesheet_evidence_sets ORDER BY id LIMIT 1"
+        ).fetchone()
+        duplicate = c.execute("INSERT INTO timesheet_evidence_sets(fingerprint,member_count) "
+                              "VALUES ('legacy:duplicate',?) RETURNING id",
+                              (original['member_count'],)).fetchone()['id']
+        c.execute("INSERT INTO timesheet_evidence_members SELECT ?,event_id,episode_key "
+                  "FROM timesheet_evidence_members WHERE evidence_set_id=?", (duplicate,original['id']))
+        prepare_shared_sets(c)
+        members = c.execute("SELECT event_id,episode_key FROM timesheet_evidence_members "
+                            "WHERE evidence_set_id=?", (duplicate,)).fetchall()
+        assert persist_evidence(c, members) == original['id']
+        assert verify(c)['invalid_sets'] == 0
+
+
+def test_machine_attribution_invalidates_calculation(archive):
+    from uuid import uuid4
+
+    from chatreview.shared_evidence import calculation_fingerprint
+
+    with database(archive) as c:
+        before = calculation_fingerprint(c, "UTC")
+        machine = str(uuid4())
+        c.execute("INSERT INTO machines(id,name) VALUES (?, 'synthetic other device')", (machine,))
+        c.execute("UPDATE sessions SET machine_id=? WHERE id=(SELECT min(id) FROM sessions)", (machine,))
+        assert calculation_fingerprint(c, "UTC") != before
