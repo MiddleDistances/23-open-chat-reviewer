@@ -141,15 +141,19 @@ def backfill_batch(
         FROM timesheet_evidence_sets t WHERE t.fingerprint=s.fingerprint""")
     connection.execute("""UPDATE storage_sets SET target_set_id=evidence_set_id
         WHERE evidence_set_id IS NOT NULL""")
-    connection.execute(
-        """CREATE TEMP TABLE storage_set_counts ON COMMIT DROP AS
-        SELECT target.target_set_id,m.actual
-        FROM (SELECT DISTINCT target_set_id FROM storage_sets) target
+    connection.execute("ANALYZE storage_sets")
+    connection.execute("""CREATE TEMP TABLE storage_expected ON COMMIT DROP AS
+        SELECT m.* FROM (SELECT DISTINCT target_set_id FROM storage_sets) target
         CROSS JOIN LATERAL (
-            SELECT count(*) AS actual FROM timesheet_evidence_members
-            WHERE evidence_set_id=target.target_set_id
-        ) m"""
-    )
+            SELECT evidence_set_id,event_id,episode_key FROM timesheet_evidence_members
+            WHERE evidence_set_id=target.target_set_id OFFSET 0
+        ) m""")
+    connection.execute("ANALYZE storage_expected")
+    connection.execute("""CREATE TEMP TABLE storage_set_counts ON COMMIT DROP AS
+        SELECT target.target_set_id,count(m.event_id) AS actual
+        FROM (SELECT DISTINCT target_set_id FROM storage_sets) target
+        LEFT JOIN storage_expected m ON m.evidence_set_id=target.target_set_id
+        GROUP BY target.target_set_id""")
     # Both cardinality and null-safe equality are required; hashes alone are not proof.
     if connection.execute("""SELECT 1 FROM storage_sets s
         LEFT JOIN timesheet_evidence_sets t ON t.id=s.target_set_id
@@ -157,11 +161,13 @@ def backfill_batch(
         WHERE t.id IS NULL OR t.member_count<>s.evidence_count
         OR counts.actual<>s.evidence_count LIMIT 1""").fetchone():
         raise ValueError("Shared evidence cardinality mismatch")
-    if connection.execute("""SELECT 1 FROM storage_members old
+    if connection.execute("""SELECT count(*) AS mismatches FROM storage_members old
         JOIN storage_sets s ON s.id=old.interval_id
-        LEFT JOIN timesheet_evidence_members m
+        LEFT JOIN storage_expected m
           ON m.evidence_set_id=s.target_set_id AND m.event_id=old.event_id
-        WHERE m.event_id IS NULL OR m.episode_key IS DISTINCT FROM old.episode_key LIMIT 1""").fetchone():
+        WHERE m.event_id IS NULL OR m.episode_key IS DISTINCT FROM old.episode_key""").fetchone()[
+        "mismatches"
+    ]:
         raise ValueError("Legacy/shared evidence membership mismatch")
     if connection.execute("""SELECT 1 FROM storage_sets
         WHERE actual>0 AND actual<>evidence_count LIMIT 1""").fetchone():
