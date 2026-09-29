@@ -270,8 +270,14 @@ def storage_command(
     selected = env_file or (
         Path(os.environ["CHATREVIEW_ENV_FILE"]) if os.environ.get("CHATREVIEW_ENV_FILE") else None
     )
-    config = dotenv_values(selected, interpolate=False) if selected else {}
-    url = config.get("CHATREVIEW_DATABASE_URL") or os.environ.get("CHATREVIEW_DATABASE_URL")
+    if selected is not None:
+        if not selected.is_file():
+            raise typer.BadParameter("Selected environment file does not exist")
+        url = dotenv_values(selected, interpolate=False).get("CHATREVIEW_DATABASE_URL")
+        if not url:
+            raise typer.BadParameter("Selected environment file must define CHATREVIEW_DATABASE_URL")
+    else:
+        url = os.environ.get("CHATREVIEW_DATABASE_URL")
     if not url:
         raise typer.BadParameter("Supply --env-file or CHATREVIEW_DATABASE_URL")
     if workers > 1 and max_batches is not None:

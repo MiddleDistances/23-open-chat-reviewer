@@ -235,3 +235,23 @@ def test_calendar_and_exports_preserve_mixed_historical_storage(archive):
         assert timesheet_calendar(c, year=2026) == original
         for fmt, content in exports.items():
             assert export_timesheet(c, format=fmt).content == content
+
+
+@pytest.mark.parametrize("file_exists", [False, True])
+def test_selected_environment_never_falls_back_to_ambient_database(tmp_path, monkeypatch, file_exists):
+    from typer.testing import CliRunner
+
+    import chatreview.storage as storage
+
+    selected = tmp_path / "selected.env"
+    if file_exists:
+        selected.write_text("UNRELATED_SETTING=1\n")
+    monkeypatch.setenv("CHATREVIEW_DATABASE_URL", "postgresql://ambient.invalid/archive")
+
+    def unexpected_database(*args, **kwargs):
+        pytest.fail("Selected environment must fail before opening any database")
+
+    monkeypatch.setattr(storage, "database", unexpected_database)
+    result = CliRunner().invoke(storage.app, ["audit", "--env-file", str(selected)])
+    assert result.exit_code != 0
+    assert "Selected environment file" in result.output

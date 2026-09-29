@@ -51,6 +51,8 @@ Use the environment file actually selected by the running web and worker service
 A database name alone does not identify a cluster. Storage maintenance reports the
 PostgreSQL system identifier, database OID, server port, schema, and migration history;
 it never prints the database URL. Explicit `--env-file` takes precedence over the shell.
+A selected file must exist and define `CHATREVIEW_DATABASE_URL`; missing settings never
+fall back to a different database from the shell environment.
 
 ```bash
 uv run open-chat-reviewer storage run audit --env-file /path/to/live.env
