@@ -106,10 +106,14 @@ def backfill_batch(
         connection.rollback()
         return {"intervals": 0, "last_interval_id": after_id}
     connection.execute("""CREATE TEMP TABLE storage_members ON COMMIT DROP AS
-        SELECT e.interval_id,e.event_id,e.episode_key FROM work_interval_evidence e
-        JOIN storage_targets target ON target.id=e.interval_id""")
+        SELECT target.id AS interval_id,e.event_id,e.episode_key FROM storage_targets target
+        CROSS JOIN LATERAL (
+            SELECT event_id,episode_key FROM work_interval_evidence
+            WHERE interval_id=target.id OFFSET 0
+        ) e""")
     connection.execute("CREATE INDEX ON storage_members(interval_id,event_id)")
     connection.execute("ANALYZE storage_members")
+    # OFFSET 0 above retains parameterized lookups despite skewed legacy statistics.
     connection.execute(f"""CREATE TEMP TABLE storage_sets ON COMMIT DROP AS
         SELECT t.id,t.evidence_set_id,t.evidence_count,count(m.event_id) AS actual,
                {FINGERPRINT_SQL} AS fingerprint
@@ -136,10 +140,12 @@ def backfill_batch(
         WHERE evidence_set_id IS NOT NULL""")
     connection.execute(
         """CREATE TEMP TABLE storage_set_counts ON COMMIT DROP AS
-        SELECT target.target_set_id,count(m.event_id) AS actual
+        SELECT target.target_set_id,m.actual
         FROM (SELECT DISTINCT target_set_id FROM storage_sets) target
-        LEFT JOIN timesheet_evidence_members m ON m.evidence_set_id=target.target_set_id
-        GROUP BY target.target_set_id"""
+        CROSS JOIN LATERAL (
+            SELECT count(*) AS actual FROM timesheet_evidence_members
+            WHERE evidence_set_id=target.target_set_id
+        ) m"""
     )
     # Both cardinality and null-safe equality are required; hashes alone are not proof.
     if connection.execute("""SELECT 1 FROM storage_sets s
