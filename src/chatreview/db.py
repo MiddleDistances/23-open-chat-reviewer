@@ -75,10 +75,6 @@ SEARCH_INDEXES = {
     "contents_search_idx": (
         "CREATE INDEX CONCURRENTLY IF NOT EXISTS contents_search_idx ON contents USING gin(search_vector)"
     ),
-    "contents_text_trgm_idx": (
-        "CREATE INDEX CONCURRENTLY IF NOT EXISTS contents_text_trgm_idx "
-        "ON contents USING gin(text gin_trgm_ops)"
-    ),
     "artifacts_value_trgm_idx": (
         "CREATE INDEX CONCURRENTLY IF NOT EXISTS artifacts_value_trgm_idx "
         "ON artifacts USING gin(value gin_trgm_ops)"
@@ -393,9 +389,7 @@ def _legacy_migration_is_compatible(
             ).fetchone()["exists"]
         )
     if version == 16:
-        relation = connection.execute(
-            "SELECT to_regclass('semantic_session_state') AS relation"
-        ).fetchone()
+        relation = connection.execute("SELECT to_regclass('semantic_session_state') AS relation").fetchone()
         return relation is not None and relation["relation"] is not None
     signature = connection.execute(
         """
@@ -478,9 +472,7 @@ def doctor(database_url: str) -> DoctorReport:
                     name=row["name"],
                     checksum=row["checksum"],
                 ):
-                    raise DatabaseError(
-                        f"migration {version} differs from the already-applied migration"
-                    )
+                    raise DatabaseError(f"migration {version} differs from the already-applied migration")
     assert server is not None
     return DoctorReport(
         server_version=server["server_version"],
