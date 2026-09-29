@@ -133,3 +133,39 @@ def test_changed_membership_and_settings_make_distinct_identities(archive):
         c.execute("UPDATE sessions SET contributor_id=NULL")
         second = build_timesheet(c, cutoff=first.cutoff)
         assert second.snapshot_id != first.snapshot_id
+
+
+def test_existing_shared_schema_upgrade_and_source_preservation(archive):
+    from chatreview.db import migrate
+
+    with database(archive) as c:
+        raw = c.execute(
+            "SELECT payload_hash,encode(sha256(payload),'hex') AS digest FROM raw_payloads ORDER BY 1"
+        ).fetchall()
+        artifacts = c.execute("SELECT * FROM artifacts ORDER BY id").fetchall()
+        snapshots = c.execute(
+            "SELECT to_jsonb(s)-'calculation_fingerprint' AS row FROM timesheet_snapshots s ORDER BY id"
+        ).fetchall()
+        c.execute("DROP VIEW effective_work_interval_evidence")
+        c.execute("DROP FUNCTION invalidate_interval_storage_proof() CASCADE")
+        c.execute("DROP FUNCTION protect_referenced_evidence_members() CASCADE")
+        c.execute("DROP TABLE storage_interval_verification,storage_maintenance_progress")
+        c.execute("ALTER TABLE timesheet_snapshots DROP COLUMN calculation_fingerprint")
+        c.execute("DELETE FROM chatreview_schema_migrations WHERE version=22")
+    migrate(archive)
+    with database(archive) as c:
+        prepare_shared_sets(c)
+        assert verify(c) == {"uncertified_intervals": 0, "invalid_sets": 0}
+        assert (
+            c.execute(
+                "SELECT payload_hash,encode(sha256(payload),'hex') AS digest FROM raw_payloads ORDER BY 1"
+            ).fetchall()
+            == raw
+        )
+        assert c.execute("SELECT * FROM artifacts ORDER BY id").fetchall() == artifacts
+        assert (
+            c.execute(
+                "SELECT to_jsonb(s)-'calculation_fingerprint' AS row FROM timesheet_snapshots s ORDER BY id"
+            ).fetchall()
+            == snapshots
+        )

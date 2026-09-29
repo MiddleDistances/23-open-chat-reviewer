@@ -74,6 +74,16 @@ def prepare_shared_sets(connection: Session) -> None:
         WHERE s.id=x.id AND s.fingerprint<>x.fingerprint
         AND NOT EXISTS (SELECT 1 FROM timesheet_evidence_sets existing
                         WHERE existing.fingerprint=x.fingerprint)""")
+    connection.execute("LOCK TABLE work_interval_evidence IN SHARE MODE")
+    if connection.execute("""SELECT 1 FROM work_intervals w
+        JOIN timesheet_evidence_sets s ON s.id=w.evidence_set_id
+        WHERE w.evidence_count<>s.member_count LIMIT 1""").fetchone():
+        raise ValueError("Existing shared interval count mismatch")
+    connection.execute("""INSERT INTO storage_interval_verification(interval_id,evidence_set_id,member_count)
+        SELECT w.id,w.evidence_set_id,w.evidence_count FROM work_intervals w
+        WHERE w.evidence_set_id IS NOT NULL
+          AND NOT EXISTS (SELECT 1 FROM work_interval_evidence old WHERE old.interval_id=w.id)
+        ON CONFLICT (interval_id) DO NOTHING""")
     connection.commit()
 
 

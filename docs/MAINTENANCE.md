@@ -88,7 +88,7 @@ writers. Restore service only after read/search/calendar/export checks. After re
 rollback requires a shared-evidence-compatible release or the verified backup; an older
 binary cannot safely read all historical evidence.
 
-The unused contents trigram index is no longer automatically rebuilt. Retire an existing
-copy only after checking all deployed consumers. Keep full-text and artifact substring
+Migration 0023 retires the unused contents trigram index after a complete deployed-query
+review; the index is no longer automatically rebuilt. Keep full-text and artifact substring
 indexes. Audit and compact other relations only when measurements demonstrate waste;
 allocated bytes and estimated dead-row counts alone do not establish reclaimable bytes.

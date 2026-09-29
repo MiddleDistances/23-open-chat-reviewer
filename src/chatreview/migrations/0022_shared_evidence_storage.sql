@@ -40,6 +40,22 @@ BEGIN
         AND pg_get_constraintdef(oid)='PRIMARY KEY (evidence_set_id, event_id)') THEN
         RAISE EXCEPTION 'Incompatible shared evidence primary key';
     END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint
+        WHERE conrelid='timesheet_evidence_sets'::regclass AND contype='u'
+          AND pg_get_constraintdef(oid)='UNIQUE (fingerprint)') THEN
+        RAISE EXCEPTION 'Incompatible shared evidence fingerprint uniqueness';
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint
+        WHERE conrelid='timesheet_evidence_members'::regclass AND contype='f'
+          AND confrelid='events'::regclass)
+       OR NOT EXISTS (SELECT 1 FROM pg_constraint
+        WHERE conrelid='timesheet_evidence_members'::regclass AND contype='f'
+          AND confrelid='timesheet_evidence_sets'::regclass)
+       OR NOT EXISTS (SELECT 1 FROM pg_constraint
+        WHERE conrelid='work_intervals'::regclass AND contype='f'
+          AND confrelid='timesheet_evidence_sets'::regclass) THEN
+        RAISE EXCEPTION 'Incompatible shared evidence foreign keys';
+    END IF;
 END $$;
 CREATE OR REPLACE VIEW effective_work_interval_evidence AS
     SELECT interval.id AS interval_id, member.event_id, member.episode_key

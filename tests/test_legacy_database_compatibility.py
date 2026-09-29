@@ -131,7 +131,7 @@ def test_migrate_adds_public_token_tables_after_private_versions_15_and_16() -> 
             )
             connection.commit()
 
-        assert doctor(database_url).migration_count == 11
+        assert doctor(database_url).migration_count == 12
         assert migrate(database_url) == [
             "0020_token_usage_legacy_compatibility.sql",
             "0021_token_costs_legacy_compatibility.sql",
