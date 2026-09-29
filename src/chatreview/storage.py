@@ -5,12 +5,15 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+from threading import Event
 from typing import Annotated, Any
 
 import typer
 from dotenv import dotenv_values
+from psycopg.errors import DeadlockDetected, LockNotAvailable, SerializationFailure
 
 from chatreview.db import Session, database
 
@@ -181,13 +184,25 @@ def backfill_batch(
     return {"intervals": int(row["n"]), "last_interval_id": int(row["last"])}
 
 
-def backfill_range(url: str, start: int, end: int, batch_size: int) -> dict[str, int]:
+def backfill_range(
+    url: str, start: int, end: int, batch_size: int, stopped: Event | None = None
+) -> dict[str, int]:
     """Disjoint ranges share immutable sets; certificates are the resume authority."""
     total = 0
     with database(url) as connection:
         cursor = start
         while True:
-            result = backfill_batch(connection, batch_size, after_id=cursor, end_id=end)
+            if stopped is not None and stopped.is_set():
+                return {"range_start": start, "range_end": end, "intervals": total}
+            for attempt in range(4):
+                try:
+                    result = backfill_batch(connection, batch_size, after_id=cursor, end_id=end)
+                    break
+                except (DeadlockDetected, LockNotAvailable, SerializationFailure):
+                    connection.rollback()
+                    if attempt == 3:
+                        raise
+                    time.sleep(0.25 * 2**attempt)
             if not result["intervals"]:
                 return {"range_start": start, "range_end": end, "intervals": total}
             total += result["intervals"]
@@ -276,15 +291,17 @@ def storage_command(
                         "SELECT coalesce(max(id),0) AS id FROM work_intervals"
                     ).fetchone()["id"]
                     connection.commit()
+                    stopped = Event()
                     with ThreadPoolExecutor(max_workers=workers) as executor:
                         futures = [
-                            executor.submit(backfill_range, url, start, start + 10000, batch_size)
+                            executor.submit(backfill_range, url, start, start + 10000, batch_size, stopped)
                             for start in range(0, maximum, 10000)
                         ]
                         try:
                             for future in as_completed(futures):
                                 typer.echo(json.dumps(future.result()))
                         except BaseException:
+                            stopped.set()
                             for future in futures:
                                 future.cancel()
                             raise

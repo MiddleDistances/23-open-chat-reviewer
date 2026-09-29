@@ -191,3 +191,27 @@ def test_disjoint_parallel_backfill_reuses_identical_sets(archive):
     with database(archive) as c:
         assert verify(c) == {"uncertified_intervals": 0, "invalid_sets": 0}
         assert c.execute("SELECT * FROM effective_work_interval_evidence ORDER BY 1,2").fetchall() == expected
+
+
+def test_parallel_range_retries_only_transient_rolled_back_batches(archive, monkeypatch):
+    import chatreview.storage as storage
+
+    original = storage.backfill_batch
+    attempts = 0
+
+    def transient(*args, **kwargs):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise psycopg.errors.LockNotAvailable("concurrent set registration")
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(storage, "backfill_batch", transient)
+    monkeypatch.setattr(storage.time, "sleep", lambda _: None)
+    with database(archive) as c:
+        make_legacy(c)
+    result = storage.backfill_range(archive, 0, 10000, 200)
+    assert result["intervals"] > 0
+    assert attempts >= 3
+    with database(archive) as c:
+        assert verify(c) == {"uncertified_intervals": 0, "invalid_sets": 0}
