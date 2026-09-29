@@ -13,6 +13,7 @@ from zoneinfo import ZoneInfo
 from chatreview.db import Session
 from chatreview.providers.base import stable_hash
 from chatreview.semantic import corpus_revision
+from chatreview.shared_evidence import calculation_fingerprint, persist_evidence
 from chatreview.timezones import local_zone as _local_zone
 
 ALGORITHM_VERSION = 3
@@ -97,8 +98,9 @@ def build_timesheet(
     zone = _local_zone(timezone_name)
     zone_name = zone.key
     fingerprint = corpus_revision(connection)
+    calculation = calculation_fingerprint(connection, zone_name)
     snapshot_key = stable_hash(
-        f"timesheet\0{ALGORITHM_VERSION}\0{fingerprint}\0{cutoff.isoformat()}\0{zone_name}"
+        f"timesheet\0{ALGORITHM_VERSION}\0{fingerprint}\0{cutoff.isoformat()}\0{zone_name}\0{calculation}"
     )
     existing = connection.execute(
         "SELECT * FROM timesheet_snapshots WHERE snapshot_key=?", (snapshot_key,)
@@ -109,10 +111,11 @@ def build_timesheet(
         snapshot = connection.execute(
             """
             INSERT INTO timesheet_snapshots(
-                snapshot_key, corpus_fingerprint, cutoff, algorithm_version, timezone, status
-            ) VALUES (?, ?, ?, ?, ?, 'building') RETURNING id
+                snapshot_key, corpus_fingerprint, cutoff, algorithm_version, timezone,
+                calculation_fingerprint, status
+            ) VALUES (?, ?, ?, ?, ?, ?, 'building') RETURNING id
             """,
-            (snapshot_key, fingerprint, cutoff, ALGORITHM_VERSION, zone_name),
+            (snapshot_key, fingerprint, cutoff, ALGORITHM_VERSION, zone_name, calculation),
         ).fetchone()
         assert snapshot is not None
         snapshot_id = int(snapshot["id"])
@@ -191,7 +194,9 @@ def timesheet_calendar(
     snapshot = (
         dict(snapshot_row)
         if snapshot_row is not None
-        else None if snapshot_id is not None else latest_snapshot(connection)
+        else None
+        if snapshot_id is not None
+        else latest_snapshot(connection)
     )
     if snapshot is None or snapshot["status"] != "complete":
         return {
@@ -283,7 +288,7 @@ def timesheet_calendar(
             SELECT interval_evidence.interval_id,
                    BOOL_OR(session.provider='git') AS has_git,
                    BOOL_OR(session.provider<>'git') AS has_chat
-            FROM work_interval_evidence interval_evidence
+            FROM effective_work_interval_evidence interval_evidence
             JOIN calendar_intervals target ON target.id=interval_evidence.interval_id
             JOIN events event ON event.id=interval_evidence.event_id
             JOIN sessions session ON session.id=event.session_id
@@ -475,7 +480,7 @@ def compute_combined_timesheet(
         FROM work_intervals interval
         LEFT JOIN contributors contributor ON contributor.id=interval.contributor_id
         JOIN projects project ON project.id=interval.project_id
-        WHERE {' AND '.join(clauses)}
+        WHERE {" AND ".join(clauses)}
         ORDER BY interval.local_date, interval.contributor_id NULLS LAST,
                  interval.started_at, interval.ended_at, interval.id
         """,
@@ -491,21 +496,15 @@ def compute_combined_timesheet(
         selected_projects = sorted(catalog.values(), key=lambda item: item["project"].casefold())
         selected_keys = tuple(str(project["project_key"]) for project in selected_projects)
 
-    project_order = {
-        str(project["project_key"]): index for index, project in enumerate(selected_projects)
-    }
+    project_order = {str(project["project_key"]): index for index, project in enumerate(selected_projects)}
     grouped: defaultdict[tuple[int | None, str, date], list[Any]] = defaultdict(list)
     for row in rows:
-        grouped[(row["contributor_id"], row["contributor"] or "Unresolved", row["local_date"])].append(
-            row
-        )
+        grouped[(row["contributor_id"], row["contributor"] or "Unresolved", row["local_date"])].append(row)
 
     combined_intervals: list[dict[str, Any]] = []
     contributor_days: list[dict[str, Any]] = []
     for (contributor_id, contributor, local_date), interval_rows in grouped.items():
-        events: defaultdict[datetime, dict[str, list[Any]]] = defaultdict(
-            lambda: {"starts": [], "ends": []}
-        )
+        events: defaultdict[datetime, dict[str, list[Any]]] = defaultdict(lambda: {"starts": [], "ends": []})
         for row in interval_rows:
             if row["ended_at"] <= row["started_at"]:
                 continue
@@ -516,9 +515,7 @@ def compute_combined_timesheet(
         day_intervals: list[dict[str, Any]] = []
         for boundary in sorted(events):
             if previous_at is not None and boundary > previous_at and active:
-                projects = {
-                    str(row["project_key"]): str(row["project"]) for row in active.values()
-                }
+                projects = {str(row["project_key"]): str(row["project"]) for row in active.values()}
                 project_items = [
                     {"project_key": key, "project": name}
                     for key, name in sorted(
@@ -547,8 +544,7 @@ def compute_combined_timesheet(
                     day_intervals[-1]["ended_at"] = value["ended_at"]
                     day_intervals[-1]["exact_seconds"] += seconds
                     day_intervals[-1]["source_interval_ids"] = sorted(
-                        set(day_intervals[-1]["source_interval_ids"])
-                        | set(value["source_interval_ids"])
+                        set(day_intervals[-1]["source_interval_ids"]) | set(value["source_interval_ids"])
                     )
                 else:
                     day_intervals.append(value)
@@ -687,9 +683,7 @@ def list_timesheet_rows(
     if filters.projects:
         projects = tuple(dict.fromkeys(filters.projects))
         placeholders = ", ".join("?" for _ in projects)
-        clauses.append(
-            f"(project.project_key IN ({placeholders}) OR project.name IN ({placeholders}))"
-        )
+        clauses.append(f"(project.project_key IN ({placeholders}) OR project.name IN ({placeholders}))")
         parameters.extend(projects)
         parameters.extend(projects)
     pagination = ""
@@ -968,8 +962,7 @@ def _allocate_slices(segments: list[Segment], *, unallocated_id: int) -> list[Sl
                 event_ids.update(
                     event_id
                     for event_id, timestamp in segment.event_times.items()
-                    if start <= timestamp < end
-                    or (timestamp == end and end == segment.end)
+                    if start <= timestamp < end or (timestamp == end and end == segment.end)
                 )
             _append_or_merge(
                 result,
@@ -1023,9 +1016,7 @@ def _append_or_merge(result: list[Slice], value: Slice) -> None:
     result.append(value)
 
 
-def _split_local_midnights(
-    slices: list[Slice], *, zone: ZoneInfo | None = None
-) -> list[Slice]:
+def _split_local_midnights(slices: list[Slice], *, zone: ZoneInfo | None = None) -> list[Slice]:
     zone = zone or _local_zone()
     result: list[Slice] = []
     for item in slices:
@@ -1064,16 +1055,13 @@ def _persist_intervals(
     result: list[dict[str, Any]] = []
     last_end: dict[tuple[str, int], datetime] = {}
     assignment_slices = [
-        part
-        for item in slices
-        for part in _split_default_activity_boundaries(connection, item)
+        part for item in slices for part in _split_default_activity_boundaries(connection, item)
     ]
     for item in assignment_slices:
         clock_key = (item.contributor_key, item.project_id or -1)
         if item.end > item.start and item.start < last_end.get(clock_key, item.start):
             raise RuntimeError(
-                f"overlapping calculated intervals for {item.contributor_key} "
-                f"and project {item.project_id}"
+                f"overlapping calculated intervals for {item.contributor_key} and project {item.project_id}"
             )
         if item.end > item.start:
             last_end[clock_key] = max(last_end.get(clock_key, item.end), item.end)
@@ -1117,12 +1105,10 @@ def _persist_intervals(
             """,
             (list(item.event_ids),),
         ).fetchall()
-        connection.executemany(
-            """
-            INSERT INTO work_interval_evidence(interval_id, event_id, episode_key)
-            VALUES (?, ?, ?) ON CONFLICT DO NOTHING
-            """,
-            [(interval_id, row["event_id"], row["episode_key"]) for row in evidence],
+        evidence_set_id = persist_evidence(connection, evidence)
+        connection.execute(
+            "UPDATE work_intervals SET evidence_set_id=? WHERE id=?",
+            (evidence_set_id, interval_id),
         )
         result.append({"id": interval_id, "seconds": seconds, "ambiguous": int(item.ambiguous)})
     connection.commit()
@@ -1270,9 +1256,7 @@ def _aggregate_export_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return list(grouped.values())
 
 
-def _markdown(
-    connection: Session, snapshot: dict[str, Any], rows: list[dict[str, Any]]
-) -> bytes:
+def _markdown(connection: Session, snapshot: dict[str, Any], rows: list[dict[str, Any]]) -> bytes:
     lines = [
         "# Chat-active work evidence",
         "",
@@ -1288,7 +1272,7 @@ def _markdown(
             """
             SELECT DISTINCT evidence.episode_key, evidence.event_id,
                    episode.id AS episode_id
-            FROM work_interval_evidence evidence
+            FROM effective_work_interval_evidence evidence
             LEFT JOIN episodes episode ON episode.episode_key=evidence.episode_key
             WHERE evidence.interval_id=?
             ORDER BY evidence.episode_key NULLS LAST, evidence.event_id LIMIT 100
@@ -1298,9 +1282,7 @@ def _markdown(
         links = []
         for item in evidence:
             if item["episode_key"] and item["episode_id"]:
-                links.append(
-                    f"[occurrence {item['episode_key'][:12]}](/episodes/{item['episode_id']})"
-                )
+                links.append(f"[occurrence {item['episode_key'][:12]}](/episodes/{item['episode_id']})")
             else:
                 links.append(f"[event {item['event_id']}](/api/events/{item['event_id']}/raw)")
         lines.append(
@@ -1359,7 +1341,6 @@ def _utc(value: datetime) -> datetime:
     if value.tzinfo is None:
         return value.replace(tzinfo=UTC)
     return value.astimezone(UTC)
-
 
 
 def financial_year_dates(value: str) -> tuple[date, date]:

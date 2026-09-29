@@ -44,3 +44,51 @@ scripts/uninstall.sh
 Uninstall removes only automatic service registrations. It preserves PostgreSQL,
 the `.chatreview/` directory, the checkout, and every source chat. Back up first,
 then delete preserved data manually only when you are certain it is no longer needed.
+
+## Preserve history while compacting timesheet evidence
+
+Use the environment file actually selected by the running web and worker services.
+A database name alone does not identify a cluster. Storage maintenance reports the
+PostgreSQL system identifier, database OID, server port, schema, and migration history;
+it never prints the database URL. Explicit `--env-file` takes precedence over the shell.
+
+```bash
+uv run open-chat-reviewer storage run audit --env-file /path/to/live.env
+uv run open-chat-reviewer db doctor
+uv run open-chat-reviewer db migrate
+uv run open-chat-reviewer storage run backfill --env-file /path/to/live.env \
+  --apply --target <target-from-audit> --batch-size 200
+uv run open-chat-reviewer storage run verify --env-file /path/to/live.env
+```
+
+The doctor and migration commands use `CHATREVIEW_DATABASE_URL`; load the same trusted
+live environment first. Without `--apply`, maintenance operations only report. Backfill
+commits bounded batches, retains all legacy rows, and resumes by skipping certified
+intervals. It validates counts and complete event/episode membership, including null
+references. Shared sets are immutable once referenced. Changes to legacy rows or interval
+membership invalidate the corresponding certificate. A mismatch aborts the batch.
+
+Deploy shared-evidence readers and writers together before backfill. The effective
+evidence view supports both predecessor representations without counting both copies.
+Every snapshot, cutoff, interval, artifact occurrence, encrypted payload and export
+reference is retained. Neither the calculation algorithm nor source retention changes.
+
+Before reclamation, verify a restorable backup, disk/WAL/archive headroom, and stop every
+writer plus the web service for the maintenance window. Require zero uncertified intervals
+and zero invalid sets. Then run:
+
+```bash
+uv run open-chat-reviewer storage run reclaim --env-file /path/to/live.env \
+  --apply --target <target-from-audit>
+```
+
+Reclamation locks the proof inputs, rechecks completeness, and truncates only the legacy
+`work_interval_evidence` table. It retains the empty table with a trigger that rejects old
+writers. Restore service only after read/search/calendar/export checks. After reclamation,
+rollback requires a shared-evidence-compatible release or the verified backup; an older
+binary cannot safely read all historical evidence.
+
+The unused contents trigram index is no longer automatically rebuilt. Retire an existing
+copy only after checking all deployed consumers. Keep full-text and artifact substring
+indexes. Audit and compact other relations only when measurements demonstrate waste;
+allocated bytes and estimated dead-row counts alone do not establish reclaimable bytes.

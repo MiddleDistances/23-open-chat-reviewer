@@ -58,6 +58,7 @@ from chatreview.semantic import (
     list_semantic_runs,
 )
 from chatreview.source_selection import HistoryScope
+from chatreview.storage import app as storage_app
 from chatreview.summary_jobs import selected_provider_kind
 from chatreview.summary_providers import SummaryProviderError, provider_from_environment
 from chatreview.timesheets import (
@@ -87,6 +88,7 @@ worker_app = typer.Typer(help="Run repeatable sync and derivation cycles.")
 writer_app = typer.Typer(help="Install and operate source-only writer machines.")
 network_app = typer.Typer(help="Prepare private central-node connectivity.")
 app.add_typer(db_app, name="db")
+app.add_typer(storage_app, name="storage")
 app.add_typer(resume_app, name="resume")
 app.add_typer(semantic_app, name="semantic")
 app.add_typer(timesheets_app, name="timesheets")
@@ -1068,8 +1070,6 @@ def _human_bytes(value: int) -> str:
             return f"{amount:.1f} {unit}"
         amount /= 1024
     return f"{amount:.1f} TiB"
-
-
 
 
 @token_costs_app.command("import-prices")
