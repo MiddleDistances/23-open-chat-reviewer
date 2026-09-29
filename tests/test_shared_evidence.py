@@ -170,3 +170,24 @@ def test_existing_shared_schema_upgrade_and_source_preservation(archive):
             ).fetchall()
             == snapshots
         )
+
+
+def test_disjoint_parallel_backfill_reuses_identical_sets(archive):
+    from chatreview.storage import backfill_range
+
+    with database(archive) as c:
+        build_timesheet(c, cutoff=datetime(2026, 7, 21, tzinfo=UTC))
+        expected = c.execute("SELECT * FROM effective_work_interval_evidence ORDER BY 1,2").fetchall()
+        make_legacy(c)
+        c.execute("DELETE FROM timesheet_evidence_members")
+        c.execute("DELETE FROM timesheet_evidence_sets")
+        maximum = c.execute("SELECT max(id) AS id FROM work_intervals").fetchone()["id"]
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [
+            executor.submit(backfill_range, archive, low, high, 2)
+            for low, high in [(0, maximum // 2), (maximum // 2, maximum)]
+        ]
+        assert sum(f.result()["intervals"] for f in futures) == maximum
+    with database(archive) as c:
+        assert verify(c) == {"uncertified_intervals": 0, "invalid_sets": 0}
+        assert c.execute("SELECT * FROM effective_work_interval_evidence ORDER BY 1,2").fetchall() == expected

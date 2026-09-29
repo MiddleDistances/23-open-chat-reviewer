@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -87,15 +88,17 @@ def prepare_shared_sets(connection: Session) -> None:
     connection.commit()
 
 
-def backfill_batch(connection: Session, batch_size: int = 200, *, after_id: int = 0) -> dict[str, int]:
+def backfill_batch(
+    connection: Session, batch_size: int = 200, *, after_id: int = 0, end_id: int = 9223372036854775807
+) -> dict[str, int]:
     """Certify full equality before linking; commit links and proof in the same transaction."""
     connection.execute("LOCK TABLE work_interval_evidence IN SHARE MODE")
     connection.execute(
         """CREATE TEMP TABLE storage_targets ON COMMIT DROP AS
         SELECT w.id,w.evidence_set_id,w.evidence_count FROM work_intervals w
         LEFT JOIN storage_interval_verification proof ON proof.interval_id=w.id
-        WHERE w.id>? AND proof.interval_id IS NULL ORDER BY w.id LIMIT ? FOR UPDATE OF w""",
-        (after_id, batch_size),
+        WHERE w.id>? AND w.id<=? AND proof.interval_id IS NULL ORDER BY w.id LIMIT ? FOR UPDATE OF w""",
+        (after_id, end_id, batch_size),
     )
     connection.execute("ANALYZE storage_targets")
     row = connection.execute("SELECT count(*) AS n,max(id) AS last FROM storage_targets").fetchone()
@@ -119,6 +122,7 @@ def backfill_batch(connection: Session, batch_size: int = 200, *, after_id: int 
         WITH inserted AS (
             INSERT INTO timesheet_evidence_sets(fingerprint,member_count)
             SELECT DISTINCT fingerprint,actual FROM storage_sets WHERE evidence_set_id IS NULL
+            ORDER BY fingerprint
             ON CONFLICT (fingerprint) DO NOTHING RETURNING id,fingerprint
         ) SELECT * FROM inserted""")
     connection.execute("""INSERT INTO timesheet_evidence_members(evidence_set_id,event_id,episode_key)
@@ -161,13 +165,27 @@ def backfill_batch(connection: Session, batch_size: int = 200, *, after_id: int 
         """INSERT INTO storage_maintenance_progress(
             operation,last_interval_id,intervals_verified)
         VALUES ('evidence',?,?) ON CONFLICT (operation) DO UPDATE
-        SET last_interval_id=EXCLUDED.last_interval_id,
+        SET last_interval_id=greatest(
+            storage_maintenance_progress.last_interval_id,EXCLUDED.last_interval_id),
             intervals_verified=storage_maintenance_progress.intervals_verified+EXCLUDED.intervals_verified,
             updated_at=clock_timestamp()""",
         (row["last"], row["n"]),
     )
     connection.commit()
     return {"intervals": int(row["n"]), "last_interval_id": int(row["last"])}
+
+
+def backfill_range(url: str, start: int, end: int, batch_size: int) -> dict[str, int]:
+    """Disjoint ranges share immutable sets; certificates are the resume authority."""
+    total = 0
+    with database(url) as connection:
+        cursor = start
+        while True:
+            result = backfill_batch(connection, batch_size, after_id=cursor, end_id=end)
+            if not result["intervals"]:
+                return {"range_start": start, "range_end": end, "intervals": total}
+            total += result["intervals"]
+            cursor = result["last_interval_id"]
 
 
 def verify(connection: Session) -> dict[str, int]:
@@ -217,6 +235,7 @@ def storage_command(
     target: Annotated[str | None, typer.Option()] = None,
     batch_size: Annotated[int, typer.Option(min=1, max=2000)] = 200,
     max_batches: Annotated[int | None, typer.Option(min=1)] = None,
+    workers: Annotated[int, typer.Option(min=1, max=4)] = 1,
 ) -> None:
     """Honor the explicit environment without sourcing executable shell or printing credentials."""
     if operation not in {"audit", "backfill", "verify", "reclaim"}:
@@ -228,6 +247,8 @@ def storage_command(
     url = config.get("CHATREVIEW_DATABASE_URL") or os.environ.get("CHATREVIEW_DATABASE_URL")
     if not url:
         raise typer.BadParameter("Supply --env-file or CHATREVIEW_DATABASE_URL")
+    if workers > 1 and max_batches is not None:
+        raise typer.BadParameter("--max-batches requires --workers=1")
     mutating = apply and operation in {"backfill", "reclaim"}
     with database(url, read_only=not mutating) as connection:
         typer.echo(json.dumps({"identity": identity(connection)}, default=str), err=True)
@@ -244,6 +265,24 @@ def storage_command(
                 typer.echo(json.dumps(reclaim(connection)))
             else:
                 prepare_shared_sets(connection)
+                if workers > 1:
+                    maximum = connection.execute(
+                        "SELECT coalesce(max(id),0) AS id FROM work_intervals"
+                    ).fetchone()["id"]
+                    connection.commit()
+                    with ThreadPoolExecutor(max_workers=workers) as executor:
+                        futures = [
+                            executor.submit(backfill_range, url, start, start + 10000, batch_size)
+                            for start in range(0, maximum, 10000)
+                        ]
+                        try:
+                            for future in as_completed(futures):
+                                typer.echo(json.dumps(future.result()))
+                        except BaseException:
+                            for future in futures:
+                                future.cancel()
+                            raise
+                    return
                 after_id = 0
                 batches = 0
                 while True:

@@ -57,13 +57,14 @@ uv run open-chat-reviewer storage run audit --env-file /path/to/live.env
 uv run open-chat-reviewer db doctor
 uv run open-chat-reviewer db migrate
 uv run open-chat-reviewer storage run backfill --env-file /path/to/live.env \
-  --apply --target <target-from-audit> --batch-size 200
+  --apply --target <target-from-audit> --batch-size 200 --workers 4
 uv run open-chat-reviewer storage run verify --env-file /path/to/live.env
 ```
 
 The doctor and migration commands use `CHATREVIEW_DATABASE_URL`; load the same trusted
 live environment first. Without `--apply`, maintenance operations only report. Backfill
-commits bounded batches, retains all legacy rows, and resumes by skipping certified
+commits bounded batches in up to four disjoint interval ranges, retains all legacy rows,
+and resumes by skipping certified
 intervals. It validates counts and complete event/episode membership, including null
 references. Shared sets are immutable once referenced. Changes to legacy rows or interval
 membership invalidate the corresponding certificate. A mismatch aborts the batch.
