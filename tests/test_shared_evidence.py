@@ -215,3 +215,23 @@ def test_parallel_range_retries_only_transient_rolled_back_batches(archive, monk
     assert attempts >= 3
     with database(archive) as c:
         assert verify(c) == {"uncertified_intervals": 0, "invalid_sets": 0}
+
+
+def test_calendar_and_exports_preserve_mixed_historical_storage(archive):
+    from chatreview.timesheets import export_timesheet, timesheet_calendar
+
+    with database(archive) as c:
+        original = timesheet_calendar(c, year=2026)
+        exports = {fmt: export_timesheet(c, format=fmt).content for fmt in ('csv', 'markdown', 'json')}
+        make_legacy(c)
+        assert timesheet_calendar(c, year=2026) == original
+        assert backfill_batch(c, 1)['intervals'] == 1
+        assert timesheet_calendar(c, year=2026) == original
+        for fmt, content in exports.items():
+            assert export_timesheet(c, format=fmt).content == content
+        while backfill_batch(c, 1)['intervals']:
+            pass
+        reclaim(c)
+        assert timesheet_calendar(c, year=2026) == original
+        for fmt, content in exports.items():
+            assert export_timesheet(c, format=fmt).content == content

@@ -288,8 +288,19 @@ def timesheet_calendar(
             SELECT interval_evidence.interval_id,
                    BOOL_OR(session.provider='git') AS has_git,
                    BOOL_OR(session.provider<>'git') AS has_chat
-            FROM effective_work_interval_evidence interval_evidence
-            JOIN calendar_intervals target ON target.id=interval_evidence.interval_id
+            FROM calendar_intervals target
+            CROSS JOIN LATERAL (
+                SELECT target.id AS interval_id, member.event_id
+                FROM timesheet_evidence_members member
+                WHERE member.evidence_set_id=target.evidence_set_id
+                UNION ALL
+                SELECT target.id AS interval_id, legacy.event_id
+                FROM work_interval_evidence legacy
+                WHERE target.evidence_set_id IS NULL AND legacy.interval_id=target.id
+                -- Keep the lookup parameterized. Expanding the compatibility view
+                -- first can multiply memberships across every historical snapshot.
+                OFFSET 0
+            ) interval_evidence
             JOIN events event ON event.id=interval_evidence.event_id
             JOIN sessions session ON session.id=event.session_id
             GROUP BY interval_evidence.interval_id
