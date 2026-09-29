@@ -151,7 +151,8 @@ def test_existing_shared_schema_upgrade_and_source_preservation(archive):
         c.execute("DROP FUNCTION protect_referenced_evidence_members() CASCADE")
         c.execute("DROP TABLE storage_interval_verification,storage_maintenance_progress")
         c.execute("ALTER TABLE timesheet_snapshots DROP COLUMN calculation_fingerprint")
-        c.execute("DELETE FROM chatreview_schema_migrations WHERE version=22")
+        c.execute("DROP FUNCTION protect_inserted_evidence_members() CASCADE")
+        c.execute("DELETE FROM chatreview_schema_migrations WHERE version>=22")
     migrate(archive)
     with database(archive) as c:
         prepare_shared_sets(c)
