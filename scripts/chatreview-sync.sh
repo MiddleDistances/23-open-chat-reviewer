@@ -51,14 +51,8 @@ if ! command -v flock >/dev/null 2>&1; then
     exit 78
 fi
 
-CODEX_ROOT="${CHATREVIEW_CODEX_ROOT:-$HOME/.codex}"
-CLAUDE_ROOT="${CHATREVIEW_CLAUDE_ROOT:-$HOME/.claude}"
-GEMINI_ROOT="${CHATREVIEW_GEMINI_ROOT:-$HOME/.gemini}"
-GIT_ROOT="${CHATREVIEW_GIT_ROOT:-$HOME/Projects}"
-if [[ ! -d "$CODEX_ROOT/sessions" && ! -d "$CLAUDE_ROOT/projects" \
-    && ! -d "$GEMINI_ROOT/tmp" && ! -f "$CODEX_ROOT/history.jsonl" \
-    && ! -f "$CLAUDE_ROOT/history.jsonl" && ! -d "$GIT_ROOT" ]]; then
-    printf 'No Codex, Claude, Gemini, or Git source roots were found; refusing an empty sync\n' >&2
+if ! "$CLI" sources check --data-dir "$DATA_DIR"; then
+    printf 'Refusing an empty sync; configure at least one source folder on this machine\n' >&2
     exit 78
 fi
 

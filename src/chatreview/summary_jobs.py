@@ -25,6 +25,7 @@ from chatreview.summary_providers import (
     cli_provider_statuses,
     provider_from_environment,
 )
+from chatreview.summary_setup import current_configuration
 
 SummaryAgentId = Literal["qwen", "codex-cli", "claude-cli", "gemini-cli"]
 ACTIVE_SUMMARY_STATES = frozenset({"queued", "running"})
@@ -149,6 +150,7 @@ class SummaryRunManager:
         return provider_from_environment(
             provider=plan.provider_kind,
             runtime_root=self.data_dir / "cli-runs",
+            config_dir=self.data_dir,
         )
 
     def _run(self, plan: SummaryRunPlan) -> None:
@@ -211,23 +213,38 @@ class SummaryRunManager:
         temporary.replace(self.state_path)
 
 
-def summary_agent_catalog() -> list[dict[str, Any]]:
+def summary_agent_catalog(data_dir: Path | None = None) -> list[dict[str, Any]]:
     """Return fixed GUI choices without returning executable paths or credentials."""
 
-    model = os.environ.get("CHATREVIEW_SUMMARY_MODEL", "").strip()
-    base_url = os.environ.get("CHATREVIEW_SUMMARY_BASE_URL", "").strip()
-    qwen_configured = bool(model and base_url)
+    configuration = None
+    configuration_error: str | None = None
+    if data_dir is not None:
+        try:
+            configuration = current_configuration(Path(data_dir))
+        except ValueError as exc:
+            configuration_error = str(exc)
+    if configuration is None and data_dir is None:
+        # Preserve the historical environment-only behavior for callers that do
+        # not have a Settings object (for example third-party integrations).
+        model = os.environ.get("CHATREVIEW_SUMMARY_MODEL", "").strip()
+        base_url = os.environ.get("CHATREVIEW_SUMMARY_BASE_URL", "").strip()
+    else:
+        model = configuration.model if configuration else ""
+        base_url = configuration.base_url if configuration else ""
+    qwen_configured = bool(model and base_url and not configuration_error)
+    if configuration_error:
+        detail = "Saved summary configuration needs attention: " + configuration_error
+    elif qwen_configured:
+        detail = f"Configured local model: {model}"
+    else:
+        detail = "Configure an OpenAI-compatible model endpoint first"
     return [
         {
             "id": "qwen",
             "label": "Local Qwen",
             "installed": qwen_configured,
             "authenticated": None,
-            "detail": (
-                f"Configured local model: {model}"
-                if qwen_configured
-                else "Set CHATREVIEW_SUMMARY_MODEL and CHATREVIEW_SUMMARY_BASE_URL first"
-            ),
+            "detail": detail,
         },
         *cli_provider_statuses(),
     ]

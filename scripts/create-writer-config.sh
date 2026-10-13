@@ -82,10 +82,10 @@ mkdir -p -- "$writer_dir"
     printf 'export CHATREVIEW_MACHINE_ID=%q\n' "$writer_machine_id"
     printf 'export CHATREVIEW_MACHINE_NAME=%q\n' "$writer_slug"
     printf 'export CHATREVIEW_NODE_ROLE=writer\n'
-    printf 'export CHATREVIEW_CODEX_ROOT="$HOME/.codex"\n'
-    printf 'export CHATREVIEW_CLAUDE_ROOT="$HOME/.claude"\n'
-    printf 'export CHATREVIEW_GEMINI_ROOT="$HOME/.gemini"\n'
-    printf 'export CHATREVIEW_GIT_ROOT="$HOME/Projects"\n'
+    printf 'export CHATREVIEW_CODEX_ROOTS='"'"'["~/.codex"]'"'"'\n'
+    printf 'export CHATREVIEW_CLAUDE_ROOTS='"'"'["~/.claude"]'"'"'\n'
+    printf 'export CHATREVIEW_GEMINI_ROOTS='"'"'["~/.gemini"]'"'"'\n'
+    printf 'export CHATREVIEW_GIT_ROOTS='"'"'["~/Projects"]'"'"'\n'
     printf 'export CHATREVIEW_ENABLE_GIT=1\n'
     printf 'export CHATREVIEW_ENABLE_SUMMARIES=0\n'
 } > "$writer_file"

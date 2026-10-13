@@ -6,6 +6,7 @@ import re
 import subprocess
 import tempfile
 from collections import defaultdict
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
@@ -13,7 +14,12 @@ from typing import Any
 
 import orjson
 
-from chatreview.providers.base import ProviderAdapter, add_fragment, stable_hash
+from chatreview.providers.base import (
+    ProviderAdapter,
+    add_fragment,
+    normalize_adapter_roots,
+    stable_hash,
+)
 from chatreview.registry import normalize_git_remote
 from chatreview.types import Artifact, ParsedRecord, SourceSpec, TextFragment
 
@@ -92,8 +98,9 @@ class GitAdapter(ProviderAdapter):
     name = "git"
     parser_version = 1
 
-    def __init__(self, root: Path, archive_root: Path) -> None:
-        self.root = root.expanduser().resolve()
+    def __init__(self, root: Path | Iterable[Path], archive_root: Path) -> None:
+        self.roots = normalize_adapter_roots(root)
+        self.root = self.roots[0] if self.roots else None
         self.archive_root = archive_root.expanduser().resolve()
 
     def prepare(self) -> list[SourceSpec]:
@@ -103,7 +110,7 @@ class GitAdapter(ProviderAdapter):
         lock_path = self.archive_root / ".index.lock"
         with lock_path.open("a+b") as lock:
             fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
-            repositories = _discover_repositories(self.root)
+            repositories = _discover_repositories_from_roots(self.roots)
             names, emails = _configured_identities(repositories)
             for repository in repositories:
                 repository.commits = _repository_commits(repository, names=names, emails=emails)
@@ -118,12 +125,14 @@ class GitAdapter(ProviderAdapter):
                         self.name,
                         path,
                         "repository",
-                        _source_provenance(self.root, repository),
+                        _source_provenance(self.roots, repository),
                     )
                 )
             catalog = {
                 "schema": GIT_RECORD_SCHEMA,
-                "root": str(self.root),
+                # Keep ``root`` for readers of the original one-root catalog.
+                "root": str(self.root) if self.root is not None else None,
+                "roots": [str(root) for root in self.roots],
                 "sources": [
                     {"path": str(source.path), "provenance": source.provenance}
                     for source in sorted(sources, key=lambda item: str(item.path))
@@ -143,7 +152,7 @@ class GitAdapter(ProviderAdapter):
             catalog = orjson.loads(catalog_path.read_bytes())
         except (OSError, orjson.JSONDecodeError):
             return self.prepare()
-        if not isinstance(catalog, dict) or catalog.get("root") != str(self.root):
+        if not isinstance(catalog, dict) or not self._catalog_matches_roots(catalog):
             return self.prepare()
         sources = []
         for value in catalog.get("sources", []):
@@ -160,6 +169,13 @@ class GitAdapter(ProviderAdapter):
                     )
                 )
         return sorted(sources, key=lambda item: str(item.path))
+
+    def _catalog_matches_roots(self, catalog: dict[str, Any]) -> bool:
+        configured = [str(root) for root in self.roots]
+        recorded = catalog.get("roots")
+        if isinstance(recorded, list):
+            return recorded == configured
+        return len(configured) == 1 and catalog.get("root") == configured[0]
 
     def parse(self, data: dict[str, Any], source: SourceSpec) -> ParsedRecord:
         del source
@@ -323,6 +339,25 @@ def _discover_repositories(root: Path) -> list[GitRepository]:
                 first_seen_ns=_birth_time_ns(common_dir),
             )
         )
+    return sorted(groups.values(), key=lambda item: item.identity)
+
+
+def _discover_repositories_from_roots(roots: Iterable[Path]) -> list[GitRepository]:
+    """Merge repositories and checkout provenance found below several roots."""
+
+    groups: dict[str, GitRepository] = {}
+    seen_checkouts: set[Path] = set()
+    for root in roots:
+        for discovered in _discover_repositories(root):
+            repository = groups.setdefault(
+                discovered.identity,
+                GitRepository(discovered.identity, discovered.repository_url),
+            )
+            for checkout in discovered.checkouts:
+                if checkout.path in seen_checkouts:
+                    continue
+                seen_checkouts.add(checkout.path)
+                repository.checkouts.append(checkout)
     return sorted(groups.values(), key=lambda item: item.identity)
 
 
@@ -507,9 +542,17 @@ def _render_repository(repository: GitRepository, *, owners: dict[str, str]) -> 
     )
 
 
-def _source_provenance(root: Path, repository: GitRepository) -> dict[str, Any]:
+def _source_provenance(roots: Iterable[Path], repository: GitRepository) -> dict[str, Any]:
+    configured = tuple(roots)
+    matching = [
+        root
+        for root in configured
+        if any(checkout.path == root or root in checkout.path.parents for checkout in repository.checkouts)
+    ]
+    primary_root = matching[0] if matching else (configured[0] if configured else None)
     return {
-        "git_root": str(root),
+        "git_root": str(primary_root) if primary_root is not None else None,
+        "git_roots": [str(root) for root in matching or configured],
         "repository_identity": repository.identity,
         "repository_url": repository.repository_url,
         "checkout_paths": sorted(str(item.path) for item in repository.checkouts),

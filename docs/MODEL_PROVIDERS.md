@@ -4,9 +4,14 @@ Summary cards are optional. The archive and all deterministic review features wo
 without a model. When enabled, a provider receives only a bounded, prompt-injection-aware
 evidence packet and must return a JSON object that passes the `ResumeDraft` schema.
 
+For an end-to-end beginner walkthrough—including a local or remote GPU, an existing CLI
+login, verification, and an AI-agent handoff prompt—see [Summary setup](SUMMARY_SETUP.md).
+
 The **Setup & storage** page detects supported local coding-agent CLIs and can run a
-bounded summary batch. It saves only the selected provider id in
-`.chatreview/summary-agent.json`; credentials remain owned by the CLI.
+bounded summary batch. It saves the selected provider id in
+`.chatreview/summary-agent.json` and credential-free endpoint/model settings in
+`.chatreview/summary-provider.json`; credentials remain in the ignored environment or
+owned by the CLI.
 
 ## Existing coding-agent login or subscription
 
@@ -22,8 +27,7 @@ For example, after signing into Codex normally:
 
 ```bash
 codex login status
-export CHATREVIEW_SUMMARY_PROVIDER=codex-cli
-export CHATREVIEW_ENABLE_SUMMARIES=1
+uv run open-chat-reviewer summary use codex-cli --data-dir .chatreview
 uv run open-chat-reviewer resume refresh --days 30 --limit 40
 ```
 

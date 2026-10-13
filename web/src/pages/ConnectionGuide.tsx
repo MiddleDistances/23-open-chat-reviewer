@@ -60,29 +60,27 @@ export function ConnectionOverview({
           <span className="eyebrow">How it fits together</span>
           <h2 id="setup-connection-title">Every computer syncs into one private archive</h2>
           <p>
-            Source files stay on their own computers. Small writer agents send records through
-            Tailscale to PostgreSQL; the central GUI reads that combined database.
+            Each computer keeps its chat files locally and syncs records to the central archive over Tailscale.
           </p>
         </div>
         <Badge tone={connection == null ? "neutral" : connection.database.remoteReady ? "success" : "partial"}>
-          {connection == null ? "Checking connection" : connection.database.remoteReady ? "Ready for writers" : "Central setup needed"}
+          {connection == null ? "Checking" : connection.database.remoteReady ? "Ready" : "Needs setup"}
         </Badge>
       </div>
 
       <div className="setup-connection-layout">
         <figure className="setup-architecture-figure">
+          <p className="sr-only">
+            {firstWriter} and {secondWriterLabel} keep chat and Git files on their own computers and
+            sync records over Tailscale to PostgreSQL on {centralName}. The web GUI reads the shared
+            archive in a trusted browser.
+          </p>
           <svg
             className="setup-architecture-desktop"
             viewBox="0 0 760 420"
-            role="img"
-            aria-labelledby="setup-architecture-title setup-architecture-description"
+            aria-hidden="true"
+            focusable="false"
           >
-            <title id="setup-architecture-title">Open Chat Reviewer multi-machine architecture</title>
-            <desc id="setup-architecture-description">
-              {firstWriter} and {secondWriterLabel} sync local Codex, Claude, Gemini, and Git
-              evidence over Tailscale into PostgreSQL on {centralName}. The web GUI reads the
-              shared database and serves it to a trusted browser.
-            </desc>
             <defs>
               <marker id="setup-arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
                 <path d="M0,0 L0,6 L9,3 z" className="setup-svg-arrowhead" />
@@ -123,15 +121,9 @@ export function ConnectionOverview({
           <svg
             className="setup-architecture-mobile"
             viewBox="0 0 320 560"
-            role="img"
-            aria-labelledby="setup-mobile-architecture-title setup-mobile-architecture-description"
+            aria-hidden="true"
+            focusable="false"
           >
-            <title id="setup-mobile-architecture-title">Open Chat Reviewer multi-machine architecture</title>
-            <desc id="setup-mobile-architecture-description">
-              {firstWriter} and {secondWriterLabel} send local chat and Git evidence through
-              Tailscale into PostgreSQL on {centralName}. The central web GUI serves the combined
-              archive to a trusted browser.
-            </desc>
             <defs>
               <marker id="setup-mobile-arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
                 <path d="M0,0 L0,6 L9,3 z" className="setup-svg-arrowhead" />
@@ -181,6 +173,7 @@ export function ConnectionOverview({
             value={connection?.web.url ?? "Checking address…"}
             copyId="setup-copy-web-address"
             actionId="setup.connection.copy-web"
+            copyLabel="Copy GUI address"
           />
           <AddressRow
             icon={<Database size={17} aria-hidden="true" />}
@@ -189,6 +182,7 @@ export function ConnectionOverview({
             ready={connection == null ? undefined : connection.database.remoteReady}
             copyId={connection?.database.writerEndpoint ? "setup-copy-database-address" : undefined}
             actionId="setup.connection.copy-database"
+            copyLabel="Copy database address"
           />
           {connection != null && !connection.database.remoteReady ? (
             <div className="setup-address-warning" role="status">
@@ -224,13 +218,13 @@ export function WriterSetupGuide({
 
   return (
     <div className="setup-writer-guide" role="group" aria-labelledby="setup-writer-guide-title">
-      <div className="setup-machine-onboarding-header">
+      <div className="setup-writer-guide-header">
         <div>
           <span className="eyebrow">Beginner setup</span>
           <h3 id="setup-writer-guide-title">Connect one other computer</h3>
         </div>
         <Badge tone={connection == null ? "neutral" : connection.database.remoteReady ? "success" : "partial"}>
-          {connection == null ? "Checking connection" : connection.database.remoteReady ? "Private endpoint ready" : "Central fix required"}
+          {connection == null ? "Checking" : connection.database.remoteReady ? "Ready" : "Needs setup"}
         </Badge>
       </div>
 
@@ -284,6 +278,7 @@ export function WriterSetupGuide({
             id="setup-copy-prepare-writers"
             actionId="setup.writer.copy-prepare"
             lines={["uv run open-chat-reviewer network prepare-writers"]}
+            copyLabel="Copy prepare command"
           />
         </>
       ) : null}
@@ -295,21 +290,21 @@ export function WriterSetupGuide({
         </li>
         <li>
           <div><strong>Create a private writer file on the central machine.</strong><span>This creates a unique machine ID and database login without printing its password.</span></div>
-          <CommandBlock id="setup-copy-create-writer" actionId="setup.writer.copy-create" lines={[centralCommand]} />
+          <CommandBlock id="setup-copy-create-writer" actionId="setup.writer.copy-create" lines={[centralCommand]} copyLabel="Copy writer command" />
         </li>
         <li>
           <div><strong>Move the private file to the other computer.</strong><span>Transfer <code>.chatreview/writers/{slug}.env</code> securely. Do not email it, commit it, or paste it into chat.</span></div>
         </li>
         <li>
           <div><strong>Run one installation command on the other computer.</strong><span>It installs what is needed{platform === "macos" ? ", including flock through Homebrew when missing" : ""}, checks the database, performs the first resumable sync, and installs the three-hour schedule.</span></div>
-          <CommandBlock id="setup-copy-install-writer" actionId="setup.writer.copy-install" lines={installLines} />
+          <CommandBlock id="setup-copy-install-writer" actionId="setup.writer.copy-install" lines={installLines} copyLabel="Copy install command" />
         </li>
         <li>
           <div><strong>Come back here and check the archive.</strong><span>The new machine appears after its first successful sync.</span></div>
         </li>
       </ol>
 
-      <div className="setup-machine-onboarding-actions">
+      <div className="setup-writer-guide-actions">
         <button className="button" id="setup-open-writer-guide" data-action-id="setup.guide.writer" type="button" disabled={!guideAvailable} onClick={onOpenGuide}>
           <Terminal size={15} aria-hidden="true" /> Full writer guide
         </button>
@@ -329,6 +324,7 @@ function AddressRow({
   ready,
   copyId,
   actionId,
+  copyLabel,
 }: {
   icon: ReactNode;
   label: string;
@@ -336,27 +332,28 @@ function AddressRow({
   ready?: boolean;
   copyId?: string;
   actionId?: string;
+  copyLabel?: string;
 }) {
   return (
     <div className="setup-address-row">
       <span className="setup-address-icon">{icon}</span>
       <span><small>{label}</small><strong>{value}</strong></span>
       {ready != null ? <Badge tone={ready ? "success" : "partial"}>{ready ? "Ready" : "Local only"}</Badge> : null}
-      {copyId && actionId ? <CopyButton id={copyId} actionId={actionId} value={value} /> : null}
+      {copyId && actionId ? <CopyButton id={copyId} actionId={actionId} value={value} copyLabel={copyLabel} /> : null}
     </div>
   );
 }
 
-function CommandBlock({ id, actionId, lines }: { id: string; actionId: string; lines: string[] }) {
+function CommandBlock({ id, actionId, lines, copyLabel }: { id: string; actionId: string; lines: string[]; copyLabel: string }) {
   return (
     <div className="setup-command-block">
-      <pre><code>{lines.join("\n")}</code></pre>
-      <CopyButton id={id} actionId={actionId} value={lines.join("\n")} label="Copy commands" />
+      <pre tabIndex={0}><code>{lines.join("\n")}</code></pre>
+      <CopyButton id={id} actionId={actionId} value={lines.join("\n")} copyLabel={copyLabel} />
     </div>
   );
 }
 
-function CopyButton({ id, actionId, value, label = "Copy" }: { id: string; actionId: string; value: string; label?: string }) {
+function CopyButton({ id, actionId, value, copyLabel = "Copy" }: { id: string; actionId: string; value: string; copyLabel?: string }) {
   const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle");
   async function copy() {
     try {
@@ -377,7 +374,7 @@ function CopyButton({ id, actionId, value, label = "Copy" }: { id: string; actio
       onClick={() => void copy()}
     >
       {copyState === "copied" ? <Check size={14} aria-hidden="true" /> : <Clipboard size={14} aria-hidden="true" />}
-      {copyState === "copied" ? "Copied" : copyState === "error" ? "Select and copy" : label}
+      {copyState === "copied" ? "Copied" : copyState === "error" ? "Select and copy" : copyLabel}
     </button>
   );
 }

@@ -77,15 +77,40 @@ errors, and verify that the Setup page opens on my computer." If a manual instal
 does not work, give Astra the error message. Keep `.chatreview/`, database URLs,
 tokens, and raw chats out of public issues and chat messages you do not control.
 
-Open the URL printed by `bootstrap.sh`. By default, Open Chat Reviewer looks for:
+Open the URL printed by `bootstrap.sh`. The setup screen starts with these familiar
+locations as suggestions/fallbacks:
 
 - Codex in `~/.codex`
 - Claude in `~/.claude`
 - Gemini in `~/.gemini`
 - Git repositories under `~/Projects`
 
+They are not requirements. Source folders belong to the machine that owns them, and
+each provider can have more than one configured folder. This is useful after a login or
+username change; for example, one machine can ingest both `/root/.codex` and
+`/home/reviewer/.codex`. Add or remove folders in that machine's Setup screen. The
+machine-local, Git-ignored `.chatreview/source-roots.json` file stores that choice; it
+contains paths only, not database credentials or chat contents.
+
+For environment-based setup, use JSON arrays so paths containing spaces remain one
+entry:
+
+```bash
+export CHATREVIEW_CODEX_ROOTS='["/root/.codex","/home/reviewer/.codex"]'
+export CHATREVIEW_CLAUDE_ROOTS='["/home/reviewer/.claude"]'
+export CHATREVIEW_GEMINI_ROOTS='["/home/reviewer/.gemini"]'
+export CHATREVIEW_GIT_ROOTS='["/home/reviewer/Projects"]'
+```
+
+The older singular `CHATREVIEW_CODEX_ROOT`, `CHATREVIEW_CLAUDE_ROOT`,
+`CHATREVIEW_GEMINI_ROOT`, and `CHATREVIEW_GIT_ROOT` variables remain compatible for a
+single folder. CLI root options can be repeated once per folder, for example
+`--codex-root /root/.codex --codex-root /home/reviewer/.codex`; quote a path with spaces.
+
 The Setup page lets you choose the history range, providers, reasoning policy, and local
-embedding model before starting a larger build.
+embedding model before starting a larger build. For optional resume summaries, follow
+[Summary setup](docs/SUMMARY_SETUP.md) or give its copyable agent prompt to the coding
+agent already signed in on that computer.
 
 ## Add another computer
 
@@ -159,6 +184,7 @@ uv run open-chat-reviewer timesheets export --format csv
 - [Architecture](docs/ARCHITECTURE.md)
 - [Sync and recovery](docs/SYNC_OPERATIONS.md)
 - [Summary model providers](docs/MODEL_PROVIDERS.md)
+- [Summary setup for local, remote, and CLI agents](docs/SUMMARY_SETUP.md)
 - [Read-only MCP](docs/MCP.md)
 - [Backup and maintenance](docs/MAINTENANCE.md)
 - [Source adapters](docs/SOURCE_ADAPTERS.md)

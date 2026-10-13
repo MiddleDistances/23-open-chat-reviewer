@@ -20,7 +20,9 @@ from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal, Protocol, runtime_checkable
-from urllib.parse import urlsplit, urlunsplit
+
+MAX_PROVIDER_RESPONSE_BYTES = 16 * 1024 * 1024
+OPENAI_COMPATIBLE_KINDS = frozenset({"openai", "openai-compatible", "qwen", "local"})
 
 
 class SummaryProviderError(RuntimeError):
@@ -306,6 +308,7 @@ class CliSummaryProvider:
                     text=True,
                     timeout=self.timeout,
                     check=False,
+                    env=_cli_subprocess_environment(),
                 )
             except subprocess.TimeoutExpired as exc:
                 raise SummaryProviderError(
@@ -434,7 +437,7 @@ def _cli_provider_status(kind: CliProviderKind) -> dict[str, Any]:
         ],
         "installed": executable is not None,
         "authenticated": None,
-        "detail": "Not installed" if executable is None else "Installed; login checked when used",
+        "detail": "Not installed" if executable is None else "Login checked when summaries run",
     }
     if executable is None:
         return result
@@ -450,6 +453,7 @@ def _cli_provider_status(kind: CliProviderKind) -> dict[str, Any]:
             text=True,
             timeout=5,
             check=False,
+            env=_cli_subprocess_environment(),
         )
     except (OSError, subprocess.TimeoutExpired):
         return result
@@ -470,7 +474,7 @@ def _cli_provider_status(kind: CliProviderKind) -> dict[str, Any]:
     elif probe.returncode == 0:
         result["authenticated"] = True
     if result["authenticated"] is True:
-        result["detail"] = "Ready to use this machine's existing login"
+        result["detail"] = "Uses this computer's existing login"
     elif result["authenticated"] is False:
         result["detail"] = f"Run `{command} auth` or `{command} login` on this machine first"
     return result
@@ -541,20 +545,49 @@ def provider_from_environment(
     base_url: str | None = None,
     api_key: str | None = None,
     runtime_root: Path | None = None,
+    config_dir: Path | None = None,
 ) -> SummaryProvider:
-    """Build one provider from CLI overrides plus ``CHATREVIEW_SUMMARY_*`` settings."""
+    """Build one provider from runtime config, CLI overrides, and environment settings.
 
+    ``config_dir`` points at the machine-local ``.chatreview`` directory.  When
+    supplied, its credential-free ``summary-provider.json`` takes precedence for
+    OpenAI-compatible providers; environment variables remain the compatibility
+    fallback for existing installations.  Explicit CLI overrides always win.
+    """
+
+    explicit_kind = (provider or "").strip().lower()
     configured_kind = os.environ.get("CHATREVIEW_SUMMARY_PROVIDER", "").strip().lower()
-    kind = (provider or configured_kind).strip().lower()
+    runtime_configuration = None
+    if config_dir is not None and (not explicit_kind or explicit_kind in OPENAI_COMPATIBLE_KINDS):
+        # Import lazily to keep the provider module usable by lightweight
+        # integrations and avoid a module cycle with the setup API.
+        from chatreview.summary_setup import SummaryConfigurationError, load_runtime_configuration
+
+        try:
+            runtime_configuration = load_runtime_configuration(Path(config_dir))
+        except SummaryConfigurationError as exc:
+            # An explicitly selected CLI/plugin does not depend on Qwen state.
+            # With no explicit choice, retain a configured non-HTTP provider as
+            # a recovery path when an unrelated endpoint file is malformed.
+            if explicit_kind or not configured_kind or configured_kind in OPENAI_COMPATIBLE_KINDS:
+                raise SummaryProviderError(
+                    "saved summary endpoint configuration is invalid"
+                ) from exc
+
+    runtime_kind = runtime_configuration.provider if runtime_configuration is not None else ""
+    kind = explicit_kind or runtime_kind or configured_kind
     if not kind:
         raise SummaryProviderError(
             "CHATREVIEW_SUMMARY_PROVIDER is not configured; choose openai-compatible, "
             "openai-responses, anthropic, codex-cli, claude-cli, gemini-cli, or plugin"
         )
     inherit_configured_model = not provider or kind == configured_kind
+    runtime_openai = runtime_configuration is not None and kind in OPENAI_COMPATIBLE_KINDS
     resolved_model = (
         model_name
         if model_name is not None
+        else runtime_configuration.model
+        if runtime_openai and runtime_configuration is not None
         else os.environ.get("CHATREVIEW_SUMMARY_MODEL", "") if inherit_configured_model else ""
     ).strip()
     if not resolved_model and kind not in {
@@ -567,12 +600,20 @@ def provider_from_environment(
     resolved_key = api_key if api_key is not None else os.environ.get("CHATREVIEW_SUMMARY_API_KEY")
     timeout = float(os.environ.get("CHATREVIEW_SUMMARY_TIMEOUT", "600"))
     max_tokens = int(os.environ.get("CHATREVIEW_SUMMARY_MAX_TOKENS", "16384"))
-    disable_thinking = os.environ.get("CHATREVIEW_SUMMARY_DISABLE_THINKING", "").strip().lower()
+    if runtime_openai and runtime_configuration is not None:
+        disable_thinking = "1" if runtime_configuration.disable_thinking else "0"
+    else:
+        disable_thinking = os.environ.get("CHATREVIEW_SUMMARY_DISABLE_THINKING", "").strip().lower()
 
     if kind in {"openai", "openai-compatible", "local", "qwen"}:
-        resolved_url = (
-            base_url or os.environ.get("CHATREVIEW_SUMMARY_BASE_URL", "http://127.0.0.1:8000/v1")
-        )
+        if base_url is not None:
+            resolved_url = base_url
+        elif runtime_openai and runtime_configuration is not None:
+            resolved_url = runtime_configuration.base_url or ""
+        else:
+            resolved_url = os.environ.get(
+                "CHATREVIEW_SUMMARY_BASE_URL", "http://127.0.0.1:8000/v1"
+            )
         raw_headers = os.environ.get("CHATREVIEW_SUMMARY_HEADERS_JSON", "{}").strip() or "{}"
         try:
             headers = json.loads(raw_headers)
@@ -686,12 +727,41 @@ def parse_json_object(value: Any) -> dict[str, Any]:
 
 
 def _validated_base_url(value: str) -> str:
-    parsed = urlsplit(value.strip().rstrip("/"))
-    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-        raise SummaryProviderError("summary provider base URL must use http or https")
-    if parsed.username or parsed.password or parsed.query or parsed.fragment:
-        raise SummaryProviderError("summary provider base URL must not contain credentials or query data")
-    return urlunsplit((parsed.scheme, parsed.netloc, parsed.path.rstrip("/"), "", ""))
+    from chatreview.summary_setup import SummaryConfigurationError, normalize_base_url
+
+    try:
+        return normalize_base_url(value)
+    except SummaryConfigurationError as exc:
+        raise SummaryProviderError(str(exc)) from exc
+
+
+def _cli_subprocess_environment() -> dict[str, str]:
+    """Keep login/runtime paths while excluding archive and ambient secrets."""
+
+    explicit = {
+        "DATABASE_URL",
+        "PGPASSFILE",
+        "PGPASSWORD",
+        "GH_TOKEN",
+        "GITHUB_TOKEN",
+        "GOOGLE_APPLICATION_CREDENTIALS",
+    }
+    sensitive_fragments = (
+        "API_KEY",
+        "CREDENTIAL",
+        "DATABASE_URL",
+        "PASSWORD",
+        "PRIVATE_KEY",
+        "SECRET",
+        "TOKEN",
+    )
+    return {
+        key: value
+        for key, value in os.environ.items()
+        if not key.upper().startswith(("CHATREVIEW_", "POSTGRES_"))
+        and key.upper() not in explicit
+        and not any(fragment in key.upper() for fragment in sensitive_fragments)
+    }
 
 
 def _post_json(
@@ -701,6 +771,15 @@ def _post_json(
     headers: dict[str, str] | None,
     timeout: float,
 ) -> dict[str, Any]:
+    from chatreview.summary_setup import (
+        SummaryConfigurationError,
+        validate_outbound_destination,
+    )
+
+    try:
+        url = validate_outbound_destination(url)
+    except SummaryConfigurationError as exc:
+        raise SummaryProviderError("provider endpoint is not an allowed destination") from exc
     request_headers = {"Content-Type": "application/json", "Accept": "application/json"}
     request_headers.update(headers or {})
     request = urllib.request.Request(
@@ -710,13 +789,32 @@ def _post_json(
         method="POST",
     )
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            data = json.loads(response.read())
+        # Provider calls can carry credentials, so do not inherit process-wide
+        # proxy settings and never follow a redirect to a different destination.
+        opener = urllib.request.build_opener(
+            urllib.request.ProxyHandler({}),
+            _NoProviderRedirectHandler,
+        )
+        with opener.open(request, timeout=timeout) as response:
+            raw = response.read(MAX_PROVIDER_RESPONSE_BYTES + 1)
+        if len(raw) > MAX_PROVIDER_RESPONSE_BYTES:
+            raise SummaryProviderError("provider response exceeded the safe size limit")
+        data = json.loads(raw)
     except urllib.error.HTTPError as exc:
-        detail = exc.read(2_000).decode(errors="replace")
-        raise SummaryProviderError(f"provider HTTP {exc.code}: {detail}") from exc
-    except (OSError, TimeoutError, urllib.error.URLError, json.JSONDecodeError) as exc:
-        raise SummaryProviderError(f"provider request failed: {type(exc).__name__}: {exc}") from exc
+        # Provider bodies can repeat prompts, evidence, or credentials.  Preserve
+        # only the status code needed by the JSON-schema compatibility fallback.
+        raise SummaryProviderError(f"provider HTTP {exc.code}") from exc
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        raise SummaryProviderError("provider response was not valid JSON") from exc
+    except (TimeoutError, urllib.error.URLError, OSError) as exc:
+        raise SummaryProviderError("provider request could not connect") from exc
     if not isinstance(data, dict):
         raise SummaryProviderError("provider response body was not a JSON object")
     return data
+
+
+class _NoProviderRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Refuse to forward a summary request or its credentials through redirects."""
+
+    def redirect_request(self, *_args: Any, **_kwargs: Any) -> None:
+        return None

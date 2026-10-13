@@ -29,9 +29,9 @@ docker compose up -d db
 ```
 
 The regular app database uses port `54329`. Tests default to port `6543`, so either run a
-second disposable PostgreSQL/pgvector instance there or set
+second disposable PostgreSQL/pgvector instance with a `chatreview_test` database there or set
 `CHATREVIEW_TEST_DATABASE_URL` to a test database. Tests create and remove isolated
-schemas.
+schemas. Never point the test URL at the live archive.
 
 ```bash
 uv run ruff check src tests

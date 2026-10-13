@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any, Literal
 
@@ -11,6 +12,7 @@ from chatreview.providers.base import (
     add_fragment,
     extract_common_artifacts,
     json_text,
+    normalize_adapter_roots,
     stable_hash,
 )
 from chatreview.types import Artifact, ParsedRecord, SourceSpec, TextFragment
@@ -22,28 +24,43 @@ class GeminiAdapter(ProviderAdapter):
     name = "gemini"
     parser_version = 1
 
-    def __init__(self, root: Path) -> None:
-        self.root = root
-        self._project_paths = self._load_project_paths()
+    def __init__(self, root: Path | Iterable[Path]) -> None:
+        self.roots = normalize_adapter_roots(root)
+        self.root = self.roots[0] if self.roots else None
+        self._project_paths = {
+            configured_root: self._load_project_paths(configured_root)
+            for configured_root in self.roots
+        }
 
     def discover(self) -> list[SourceSpec]:
         found: list[SourceSpec] = []
-        temporary_projects = self.root / "tmp"
-        if not temporary_projects.is_dir():
-            return found
-        for directory_name in sorted(os.listdir(temporary_projects)):
-            directory = temporary_projects / directory_name
-            if not directory.is_dir() or directory.is_symlink():
+        seen: set[tuple[Path, str]] = set()
+        for root in self.roots:
+            temporary_projects = root / "tmp"
+            if not temporary_projects.is_dir():
                 continue
-            chats = directory / "chats"
-            provenance = self._project_provenance(directory)
-            if chats.is_dir():
-                for path in sorted(chats.glob("session-*.json")):
-                    if path.is_file() and not path.is_symlink():
-                        found.append(SourceSpec(self.name, path, "session", provenance))
-            history = directory / "logs.json"
-            if history.is_file() and not history.is_symlink():
-                found.append(SourceSpec(self.name, history, "history", provenance))
+            for directory_name in sorted(os.listdir(temporary_projects)):
+                directory = temporary_projects / directory_name
+                if not directory.is_dir() or directory.is_symlink():
+                    continue
+                chats = directory / "chats"
+                provenance = self._project_provenance(
+                    directory,
+                    project_paths=self._project_paths[root],
+                )
+                if chats.is_dir():
+                    for path in sorted(chats.glob("session-*.json")):
+                        resolved = path.resolve(strict=False)
+                        key = (resolved, "session")
+                        if path.is_file() and not path.is_symlink() and key not in seen:
+                            seen.add(key)
+                            found.append(SourceSpec(self.name, resolved, "session", provenance))
+                history = directory / "logs.json"
+                resolved_history = history.resolve(strict=False)
+                key = (resolved_history, "history")
+                if history.is_file() and not history.is_symlink() and key not in seen:
+                    seen.add(key)
+                    found.append(SourceSpec(self.name, resolved_history, "history", provenance))
         return sorted(found, key=lambda item: str(item.path))
 
     def record_format(self, source: SourceSpec) -> Literal["json-document"]:
@@ -287,8 +304,9 @@ class GeminiAdapter(ProviderAdapter):
             )
         ]
 
-    def _load_project_paths(self) -> dict[str, tuple[str, str]]:
-        projects_file = self.root / "projects.json"
+    @staticmethod
+    def _load_project_paths(root: Path) -> dict[str, tuple[str, str]]:
+        projects_file = root / "projects.json"
         if not projects_file.is_file():
             return {}
         try:
@@ -306,7 +324,12 @@ class GeminiAdapter(ProviderAdapter):
             if isinstance(project_path, str) and isinstance(storage_name, str)
         }
 
-    def _project_provenance(self, project_directory: Path) -> dict[str, Any]:
+    def _project_provenance(
+        self,
+        project_directory: Path,
+        *,
+        project_paths: dict[str, tuple[str, str]],
+    ) -> dict[str, Any]:
         provenance: dict[str, Any] = {"project_storage": project_directory.name}
         marker = project_directory / ".project_root"
         if marker.is_file():
@@ -324,7 +347,7 @@ class GeminiAdapter(ProviderAdapter):
                     }
                 )
                 return provenance
-        mapped = self._project_paths.get(project_directory.name)
+        mapped = project_paths.get(project_directory.name)
         if mapped:
             project_root, payload_hash = mapped
             provenance.update(

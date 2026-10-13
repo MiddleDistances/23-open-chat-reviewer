@@ -92,6 +92,9 @@ class SettingsLike(Protocol):
     machine_id: UUID
     machine_name: str
 
+    def roots_for(self, provider: str, *, refresh_runtime: bool = False) -> tuple[Path, ...]:
+        """Return machine-local source roots for one provider."""
+
 
 @dataclass(frozen=True, slots=True)
 class HistoryScope:
@@ -732,9 +735,37 @@ class SetupPlanner:
     def _roots(self) -> tuple[ProviderRootStatus, ...]:
         roots: list[ProviderRootStatus] = []
         for provider in SUPPORTED_PROVIDERS:
-            root_value = getattr(self.settings, f"{provider}_root", None)
-            history_value = getattr(self.settings, f"{provider}_history", None)
-            roots.append(_inspect_root(provider, root_value, history_value))
+            try:
+                provider_roots = _settings_roots(self.settings, provider)
+            except (OSError, TypeError, ValueError) as exc:
+                roots.append(
+                    ProviderRootStatus(
+                        provider=provider,
+                        path=None,
+                        history_file=None,
+                        exists=False,
+                        is_directory=False,
+                        readable=False,
+                        history_exists=None,
+                        history_bytes=None,
+                        issue=_safe_error(exc),
+                    )
+                )
+                continue
+            if not provider_roots:
+                roots.append(_inspect_root(provider, None, None))
+                continue
+            for index, root_value in enumerate(provider_roots):
+                history_value = None
+                if provider in {"codex", "claude"}:
+                    legacy_history = getattr(self.settings, f"{provider}_history", None)
+                    legacy_root = getattr(self.settings, f"{provider}_root", None)
+                    history_value = (
+                        legacy_history
+                        if index == 0 and legacy_root is not None and Path(legacy_root) == root_value
+                        else root_value / "history.jsonl"
+                    )
+                roots.append(_inspect_root(provider, root_value, history_value))
         return tuple(roots)
 
     @staticmethod
@@ -748,9 +779,13 @@ class SetupPlanner:
         warnings: list[str] = []
         for root in roots:
             if root.provider in plan.providers and not root.exists:
-                warnings.append(f"{root.provider} source root is missing or unconfigured")
+                location = f": {root.path}" if root.path else ""
+                warnings.append(
+                    f"{root.provider} source root is missing or unconfigured{location}"
+                )
             elif root.provider in plan.providers and not root.readable:
-                warnings.append(f"{root.provider} source root is not readable")
+                location = f": {root.path}" if root.path else ""
+                warnings.append(f"{root.provider} source root is not readable{location}")
         if database_error or not snapshot.health.available:
             warnings.append("database facts are unavailable; scope and storage estimates are incomplete")
         if scope.available and scope.events == 0:
@@ -1154,6 +1189,21 @@ def _inspect_root(provider: str, root_value: Any, history_value: Any) -> Provide
             history_bytes=None,
             issue=type(exc).__name__,
         )
+
+
+def _settings_roots(settings: SettingsLike, provider: str) -> tuple[Path, ...]:
+    reader = getattr(settings, "roots_for", None)
+    if callable(reader):
+        try:
+            values = reader(provider, refresh_runtime=True)
+        except TypeError:
+            values = reader(provider)
+        return tuple(Path(value).expanduser().resolve(strict=False) for value in values)
+    plural = getattr(settings, f"{provider}_roots", None)
+    if plural is not None:
+        return tuple(Path(value).expanduser().resolve(strict=False) for value in plural)
+    singular = getattr(settings, f"{provider}_root", None)
+    return () if singular is None else (Path(singular).expanduser().resolve(strict=False),)
 
 
 def _readable(path: Path) -> bool:

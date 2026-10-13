@@ -11,8 +11,9 @@ from chatreview.db import Session
 from chatreview.episodes import episode_stats
 from chatreview.search import corpus_stats
 from chatreview.semantic import corpus_revision
+from chatreview.shared_evidence import calculation_fingerprint
 from chatreview.timesheets import ALGORITHM_VERSION as TIMESHEET_ALGORITHM_VERSION
-from chatreview.timesheets import latest_snapshot
+from chatreview.timesheets import _local_zone, latest_snapshot
 from chatreview.token_costs import needs_token_costs
 
 SEMANTIC_PROFILES = ("conversation", "episodes")
@@ -153,9 +154,7 @@ def automation_status(connection: Session) -> dict[str, Any]:
     }
     activity_total = sum(activity_counts.values())
     defaults = int(connection.execute("SELECT COUNT(*) FROM project_default_activities").fetchone()[0])
-    overrides = int(
-        connection.execute("SELECT COUNT(*) FROM occurrence_activity_overrides").fetchone()[0]
-    )
+    overrides = int(connection.execute("SELECT COUNT(*) FROM occurrence_activity_overrides").fetchone()[0])
 
     unclassified_intervals = 0
     unclassified_seconds = 0
@@ -179,6 +178,7 @@ def automation_status(connection: Session) -> dict[str, Any]:
         snapshot
         and snapshot["corpus_fingerprint"] == fingerprint
         and int(snapshot["algorithm_version"]) == TIMESHEET_ALGORITHM_VERSION
+        and snapshot.get("calculation_fingerprint") == calculation_fingerprint(connection, _local_zone().key)
     )
     needs_episodes = bool(stats["events"] and not episodes_fresh)
     needs_timesheet = not timesheet_fresh
