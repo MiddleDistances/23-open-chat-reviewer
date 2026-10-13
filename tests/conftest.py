@@ -25,7 +25,7 @@ def write_jsonl(path: Path, records: list[dict | bytes]) -> None:
 def postgres_database_url() -> str:
     schema = f"test_{uuid4().hex}"
     base_url = os.environ.get(
-        "CHATREVIEW_TEST_DATABASE_URL", "postgresql:///chatreview?port=6543"
+        "CHATREVIEW_TEST_DATABASE_URL", "postgresql:///chatreview_test?port=6543"
     )
     with psycopg.connect(base_url, autocommit=True) as connection:
         connection.execute(f'CREATE SCHEMA "{schema}"')
