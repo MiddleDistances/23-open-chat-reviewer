@@ -162,17 +162,36 @@ Use `--no-sync` or `--no-schedule` when deliberately separating those stages. Li
 first archive pass with `--history-since YYYY-MM-DD` and/or
 `--history-until YYYY-MM-DD`.
 
-Review and change `CHATREVIEW_CODEX_ROOT`, `CHATREVIEW_CLAUDE_ROOT`,
-`CHATREVIEW_GEMINI_ROOT`, and `CHATREVIEW_GIT_ROOT` for that machine before its first
-sync. Keep its generated `CHATREVIEW_MACHINE_ID` for the lifetime of that archive; do not
-copy one writer's identity to another computer.
+Review and configure that machine's source folders before its first sync. The standard
+`~/.codex`, `~/.claude`, `~/.gemini`, and `~/Projects` locations are only suggestions;
+they are not assumptions about the writer's login or filesystem. Use the plural JSON
+variables `CHATREVIEW_CODEX_ROOTS`, `CHATREVIEW_CLAUDE_ROOTS`,
+`CHATREVIEW_GEMINI_ROOTS`, and `CHATREVIEW_GIT_ROOTS` when setting more than one folder:
+
+```bash
+export CHATREVIEW_CODEX_ROOTS='["/root/.codex","/home/reviewer/.codex"]'
+export CHATREVIEW_CLAUDE_ROOTS='["/home/reviewer/.claude"]'
+export CHATREVIEW_GEMINI_ROOTS='["/home/reviewer/.gemini"]'
+export CHATREVIEW_GIT_ROOTS='["/home/reviewer/Projects","/home/reviewer/Archive Projects"]'
+```
+
+The Setup screen keeps the selected lists in the writer's Git-ignored
+`.chatreview/source-roots.json`. JSON arrays preserve spaces in folder names. The older
+singular `CHATREVIEW_CODEX_ROOT`, `CHATREVIEW_CLAUDE_ROOT`, `CHATREVIEW_GEMINI_ROOT`, and
+`CHATREVIEW_GIT_ROOT` variables remain compatible for one-folder legacy installations.
+CLI root options can also be repeated once per folder; quote paths with spaces. Keep
+the generated `CHATREVIEW_MACHINE_ID` for the lifetime of that archive; do not copy one
+writer's identity to another computer.
 
 The writer's setup is local to that computer. Select its source roots and archive history
 scope there; the central database will show this machine as a separate contributor. A
 writer does not need a copy of another machine's chat files, and a new machine will not
-be included merely because it joins the tailnet. The first-run preview should show
-provider/file/byte counts and the effective earliest/latest source timestamps before
-sync begins.
+be included merely because it joins the tailnet. The central Setup page cannot edit a
+writer's filesystem. Tailscale does not perform a network filesystem scan or discover
+folders on its own. The first-run preview should show provider/file/byte counts and the
+effective earliest/latest source timestamps before sync begins. Removing a folder from
+the writer's configuration stops future reads from that folder but does not delete its
+already archived records.
 
 For a Linux writer, inspect the installed three-hour timer with randomized jitter:
 

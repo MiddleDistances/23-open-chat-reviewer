@@ -5,6 +5,10 @@ Git-ignored machine-local state for secrets, locks, logs, reports, and exports.
 
 - Treat Codex, Claude, Gemini, and Git roots as read-only inputs.
 - Use `uv sync` and `uv run`; do not rely on system Python packages.
+- For configured CLI commands, use `scripts/chatreview.sh` or the installed
+  `chatreview-local` launcher. The script loads `CHATREVIEW_ENV_FILE` (default:
+  `.chatreview/archive.env`), selects the project directory, and invokes `uv run`.
+  Bare `uv run open-chat-reviewer` requires the settings to be exported already.
 - Run `uv run open-chat-reviewer db doctor` before deployment and apply migrations
   deliberately with `uv run open-chat-reviewer db migrate`.
 - Keep archive-derived facts separate from model-authored summaries.

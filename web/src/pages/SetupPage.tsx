@@ -30,6 +30,8 @@ import {
   WriterSetupGuide,
   type SetupConnection,
 } from "./ConnectionGuide";
+import AgentSetupGuide, { type AgentSetupGuideProps } from "./AgentSetupGuide";
+import SourceRootEditor, { type SourceRootEditorProps } from "./SourceRootEditor";
 import { useExperienceMode } from "../preferences";
 
 export type SetupProvider = "codex" | "claude" | "gemini";
@@ -127,8 +129,6 @@ export interface SetupProgress {
   error?: string | null;
 }
 
-export type SetupStep = "machines" | "history" | "policy" | "build";
-
 export interface SetupPageProps {
   /** Initial values for the local setup form. Omitted values use the safe defaults below. */
   initialConfig?: Partial<SetupConfig>;
@@ -149,11 +149,12 @@ export interface SetupPageProps {
   onSelectMachine?: (machineId: string) => void;
   onOpenInstructions?: () => void;
   onOpenWriterInstructions?: () => void;
-  onSelectStep?: (step: SetupStep) => void;
   /** Optional machine-local summary-agent controls owned by the API route. */
   summaryAgent?: ReactNode;
-  /** Marks a new archive so the page can explain the shortest successful path. */
-  firstRun?: boolean;
+  /** Optional provider discovery/save/test seams owned by the API route. */
+  agentSetup?: Omit<AgentSetupGuideProps, "currentMachineName">;
+  /** Machine-local multi-folder configuration owned by the API route. */
+  sourceRootSetup?: SourceRootEditorProps;
 }
 
 export const DEFAULT_SETUP_CONFIG: SetupConfig = {
@@ -186,10 +187,10 @@ interface ActionFeedback {
   message: string;
 }
 
-const PROVIDERS: Array<{ value: SetupProvider; label: string; description: string }> = [
-  { value: "codex", label: "Codex", description: "Sessions in ~/.codex" },
-  { value: "claude", label: "Claude", description: "Sessions in ~/.claude" },
-  { value: "gemini", label: "Gemini", description: "Sessions in ~/.gemini" },
+const PROVIDERS: Array<{ value: SetupProvider; label: string }> = [
+  { value: "codex", label: "Codex" },
+  { value: "claude", label: "Claude" },
+  { value: "gemini", label: "Gemini" },
 ];
 
 const QUICK_RANGES = [
@@ -198,13 +199,6 @@ const QUICK_RANGES = [
   { label: "Last 90 days", value: "90d" },
   { label: "All available", value: "all" },
 ] as const;
-
-const STEP_DETAILS: Array<{ id: SetupStep; number: string; label: string; description: string; icon: typeof Monitor }> = [
-  { id: "machines", number: "01", label: "Machines", description: "Find each source computer", icon: Monitor },
-  { id: "history", number: "02", label: "History", description: "Choose the time window", icon: CalendarDays },
-  { id: "policy", number: "03", label: "Storage & search", description: "Control reasoning retention", icon: ShieldCheck },
-  { id: "build", number: "04", label: "Build", description: "Preview and start", icon: Sparkles },
-];
 
 export default function SetupPage({
   initialConfig,
@@ -222,18 +216,16 @@ export default function SetupPage({
   onSelectMachine,
   onOpenInstructions,
   onOpenWriterInstructions,
-  onSelectStep,
   summaryAgent,
-  firstRun = false,
+  agentSetup,
+  sourceRootSetup,
 }: SetupPageProps) {
   const [experienceMode] = useExperienceMode();
   const isAdvanced = experienceMode === "advanced";
   const [config, setConfig] = useState<SetupConfig>(() => ({
     ...DEFAULT_SETUP_CONFIG,
-    ...quickRangePatch("7d"),
     ...initialConfig,
   }));
-  const [activeStep, setActiveStep] = useState<SetupStep>("machines");
   const [previewEstimate, setPreviewEstimate] = useState<SetupEstimate | null>(null);
   const [action, setAction] = useState<SetupAction | null>(null);
   const [feedback, setFeedback] = useState<ActionFeedback | null>(null);
@@ -249,24 +241,12 @@ export default function SetupPage({
         progress.status,
       ),
   );
-  const visibleSteps = STEP_DETAILS
-    .filter((step) => isAdvanced || step.id !== "policy")
-    .map((step, index) => ({ ...step, number: String(index + 1).padStart(2, "0") }));
 
   function updateConfig(patch: Partial<SetupConfig>) {
     const next = { ...config, ...patch };
     setConfig(next);
     setPreviewEstimate(null);
     onChange?.(next);
-  }
-
-  function selectStep(step: SetupStep) {
-    setActiveStep(step);
-    onSelectStep?.(step);
-    document.getElementById(`setup-section-${step}`)?.scrollIntoView({
-      behavior: "smooth",
-      block: "start",
-    });
   }
 
   async function runAction(
@@ -320,9 +300,20 @@ export default function SetupPage({
     }
   }
 
+  async function downloadEmbedding() {
+    if (!selectedEmbeddingModel || !onDownloadEmbeddingModel) return;
+    await runAction(
+      "download-model",
+      SETUP_ACTION_IDS.downloadEmbeddingModel,
+      () => onDownloadEmbeddingModel(selectedEmbeddingModel.id),
+      "Starting the model download…",
+      "Model download started. You can leave this page while it completes.",
+    );
+  }
+
   return (
     <div className="setup-page">
-      <PageHeader eyebrow="Archive setup" title={isAdvanced ? "Make every machine part of one evidence archive" : "Set up your chat archive"}>
+      <PageHeader eyebrow="System" title="Archive setup">
         <button
           className="button"
           id="setup-open-guide"
@@ -337,64 +328,34 @@ export default function SetupPage({
             "Setup guide opened in a new tab.",
           )}
         >
-          <BookOpen size={15} aria-hidden="true" /> Setup guide
+          <BookOpen size={15} aria-hidden="true" /> Read setup guide
         </button>
       </PageHeader>
-
-      <section className="panel setup-hero" aria-labelledby="setup-hero-title">
-        <div className="setup-hero-copy">
-          <span className="eyebrow">{firstRun ? "Welcome" : "Three simple steps"}</span>
-          <h2 id="setup-hero-title">Connect this computer, choose a date range, then build.</h2>
-          <p>Your chat folders stay read-only. You can add other computers after this one is working.</p>
-        </div>
-        <div className="setup-hero-status" role="group" aria-label="Setup summary">
-          <Badge tone={isRunning ? "partial" : progress?.status === "complete" ? "success" : "neutral"}>
-            {progressLabel(progress)}
-          </Badge>
-          <strong>{machines.length ? `${machines.length} machine${machines.length === 1 ? "" : "s"} connected` : "No machines connected yet"}</strong>
-          <span>{scopeLabel(config)}</span>
-        </div>
-      </section>
-
-      <ConnectionOverview connection={connection} machines={machines} />
-
-      {summaryAgent}
-
-      <nav className="setup-step-cards" aria-label="Archive setup steps">
-        {visibleSteps.map(({ id, number, label, description, icon: Icon }) => (
-          <button
-            className={`setup-step-card ${activeStep === id ? "active" : ""}`}
-            id={`setup-step-${id}`}
-            data-action-id={`setup.step.${id}`}
-            type="button"
-            key={id}
-            aria-current={activeStep === id ? "step" : undefined}
-            aria-controls={`setup-section-${id}`}
-            onClick={() => selectStep(id)}
-          >
-            <span className="setup-step-number">{number}</span>
-            <Icon size={18} aria-hidden="true" />
-            <span className="setup-step-copy"><strong>{label}</strong><small>{description}</small></span>
-            <ChevronRight size={15} aria-hidden="true" />
-          </button>
-        ))}
-      </nav>
 
       {feedback ? <ActionNotice feedback={feedback} /> : null}
 
       <section className="panel setup-section setup-machines" id="setup-section-machines" aria-labelledby="setup-machines-title">
         <SectionHeading step="01" eyebrow="Source computers" title="Connect the machines that own the chats" id="setup-machines-title">
-          Each writer registers itself when it first syncs to the shared archive. This page checks PostgreSQL registrations; it never scans your network.
+          Computers appear after their first sync. This page checks the shared archive; it does not scan your network.
         </SectionHeading>
         <div className="setup-machine-list" aria-live="polite">
           {machines.map((machine) => {
+            const machineDetails = [
+              machine.platform && machine.platform !== machine.name ? machine.platform : null,
+              machine.note,
+            ].filter(Boolean).join(" · ");
+            const folderCount = machine.sourceRoots.length;
             const content = <>
               <span className="setup-machine-icon"><Monitor size={18} aria-hidden="true" /></span>
               <span className="setup-machine-copy">
                 <strong>{machine.name}</strong>
-                <small>{machine.platform ?? "Platform not reported"}{machine.note ? ` · ${machine.note}` : ""}</small>
+                <small>{machineDetails || (machine.status === "current" ? "This computer" : "Other computer")}</small>
                 <span className="setup-machine-roots">
-                  {machine.sourceRoots.length ? machine.sourceRoots.map((root) => root.provider).join(" · ") : "No source roots discovered"}
+                  {folderCount
+                    ? `${folderCount} source folder${folderCount === 1 ? "" : "s"} configured`
+                    : machine.status === "current" || machine.status === "needs-setup"
+                      ? "No source folders configured on this computer"
+                      : "Folders are managed on that computer"}
                 </span>
               </span>
               <span className="setup-machine-meta">
@@ -423,31 +384,32 @@ export default function SetupPage({
           {machines.length === 0 ? (
             <div className="setup-empty-card">
               <CloudCog size={21} aria-hidden="true" />
-              <div><strong>Start with this machine</strong><p>Discover Codex, Claude, Gemini, and optional Git roots without modifying them.</p></div>
+              <div><strong>Start with this computer</strong><p>Choose its source folders below, then run the first build.</p></div>
             </div>
           ) : null}
         </div>
-        {!showMachineSetup ? (
-          <div className="setup-section-actions">
-            <button
-              className="button button-primary"
-              id="setup-add-machine"
-              data-action-id={SETUP_ACTION_IDS.addMachine}
-              type="button"
-              onClick={() => {
-                setShowMachineSetup(true);
-                setFeedback({
-                  actionId: SETUP_ACTION_IDS.addMachine,
-                  status: "success",
-                  message: "Machine setup steps are shown below. No network scan has started.",
-                });
-              }}
-            >
-              <Plus size={15} aria-hidden="true" /> Add another machine
-            </button>
-            <span className="setup-inline-note"><Info size={14} aria-hidden="true" /> Already configured it? Open the steps, then check the shared archive.</span>
-          </div>
-        ) : (
+        <div className="setup-section-actions">
+          <button
+            className="button button-primary"
+            id="setup-add-machine"
+            data-action-id={SETUP_ACTION_IDS.addMachine}
+            type="button"
+            aria-expanded={showMachineSetup}
+            onClick={() => {
+              const show = !showMachineSetup;
+              setShowMachineSetup(show);
+              setFeedback(show ? {
+                actionId: SETUP_ACTION_IDS.addMachine,
+                status: "success",
+                message: "Connection steps opened. No network scan is running.",
+              } : null);
+            }}
+          >
+            {showMachineSetup ? <ChevronRight className="setup-disclosure-icon open" size={15} aria-hidden="true" /> : <Plus size={15} aria-hidden="true" />}
+            {showMachineSetup ? "Hide connection steps" : "Connect another machine"}
+          </button>
+        </div>
+        {showMachineSetup ? (
           <WriterSetupGuide
             connection={connection}
             checking={action === "refresh-machines"}
@@ -468,13 +430,21 @@ export default function SetupPage({
               "Shared archive checked. New machines appear after their first writer sync.",
             )}
           />
-        )}
+        ) : null}
       </section>
 
-      <div className="setup-two-column">
+      <details className="panel setup-disclosure">
+        <summary id="setup-connection-details" data-action-id="setup.connection.toggle">
+          <span><strong>How machines connect</strong><small>Diagram and private connection addresses</small></span>
+          <ChevronRight className="setup-disclosure-icon" size={16} aria-hidden="true" />
+        </summary>
+        <ConnectionOverview connection={connection} machines={machines} />
+      </details>
+
+      <div className={isAdvanced ? "setup-two-column" : undefined}>
         <section className="panel setup-section" id="setup-section-history" aria-labelledby="setup-history-title">
-          <SectionHeading step="02" eyebrow="History window" title="Choose how far back to process" id="setup-history-title">
-            Start small if you are validating the installation. You can extend the range and rerun the derived indexes later.
+          <SectionHeading step="02" eyebrow="History and sources" title="Choose what to process" id="setup-history-title">
+            Start with a short range. You can process more history later.
           </SectionHeading>
           <div className="setup-quick-ranges" role="group" aria-label="History presets">
             {QUICK_RANGES.map((range) => {
@@ -486,27 +456,34 @@ export default function SetupPage({
             <label><span>From</span><input type="date" aria-label="History start date" value={config.historyStart} onChange={(event) => updateConfig({ historyStart: event.target.value })} /></label>
             <label><span>Through</span><input type="date" aria-label="History end date" value={config.historyEnd} onChange={(event) => updateConfig({ historyEnd: event.target.value })} /></label>
           </div>
-          <p className="setup-field-help"><CalendarDays size={14} aria-hidden="true" /> Empty dates mean all available source history. This filter applies to the build; the vector map can have its own view filter.</p>
+          <p className="setup-field-help"><CalendarDays size={14} aria-hidden="true" /> Leave both dates empty to process all available history.</p>
           <fieldset className="setup-choice-fieldset">
-            <legend>Conversation sources</legend>
+            <legend>Sources on this computer</legend>
+            <p className="setup-field-help">Choose which archives to include.</p>
             <div className="setup-provider-grid">
               {PROVIDERS.map((provider) => (
                 <label className="setup-choice-card" key={provider.value}>
                   <input id={`setup-source-${provider.value}`} type="checkbox" checked={config.providers.includes(provider.value)} onChange={(event) => updateProviders(provider.value, event.target.checked, config, updateConfig)} />
-                  <span><strong>{provider.label}</strong><small>{provider.description}</small></span>
+                  <span><strong>{provider.label}</strong></span>
                 </label>
               ))}
               <label className="setup-choice-card">
                 <input id="setup-source-git" type="checkbox" checked={config.includeGitMetadata} onChange={(event) => updateConfig({ includeGitMetadata: event.target.checked })} />
-                <span><strong>Git metadata</strong><small>Repositories, commits, paths—not file contents</small></span>
+                <span><strong>Git metadata</strong><small>No file contents</small></span>
               </label>
             </div>
           </fieldset>
+          {sourceRootSetup ? (
+            <SourceRootEditor
+              key={sourceRootSetup.roots.map((root) => `${root.provider}:${root.path ?? ""}`).join("|")}
+              {...sourceRootSetup}
+            />
+          ) : null}
         </section>
 
         {isAdvanced ? <section className="panel setup-section" id="setup-section-policy" aria-labelledby="setup-policy-title">
-          <SectionHeading step="03" eyebrow="Storage and retrieval" title="Choose what reasoning is used for" id="setup-policy-title">
-            Raw evidence, lexical search, and vector projection are separate decisions. Changing a derived policy never rewrites the original chat archive.
+          <SectionHeading step="A" eyebrow="Optional" title="Reasoning settings" id="setup-policy-title">
+            Choose whether readable reasoning can be searched or shown on the semantic map.
           </SectionHeading>
           <fieldset className="setup-policy-list">
             <legend className="sr-only">Reasoning retention and indexing policy</legend>
@@ -514,38 +491,38 @@ export default function SetupPage({
               checked={config.preserveEncryptedReasoning}
               onChange={(checked) => updateConfig({ preserveEncryptedReasoning: checked })}
               icon={<Database size={17} aria-hidden="true" />}
-              title="Preserve encrypted raw reasoning"
-              description="Keep exact provider payloads for audit and replay. This is usually the largest reasoning category."
-              badge="Raw evidence"
+              title="Keep raw reasoning data"
+              description="Retain provider payloads for audit and replay."
+              badge="Stored"
             />
             <PolicyChoice
               checked={config.includeReadableReasoningInSearch}
               onChange={(checked) => updateConfig({ includeReadableReasoningInSearch: checked })}
               icon={<HardDrive size={17} aria-hidden="true" />}
-              title="Include readable reasoning in text search"
-              description="Let full-text search match visible reasoning summaries. It does not add those summaries to the vector projection."
-              badge="Lexical"
+              title="Search readable reasoning"
+              description="Include readable reasoning summaries in text search."
+              badge="Searchable"
             />
             <PolicyChoice
               checked={config.includeReasoningInProjection}
               onChange={(checked) => updateConfig({ includeReasoningInProjection: checked })}
               icon={<Sparkles size={17} aria-hidden="true" />}
-              title="Include reasoning in the vector projection"
-              description="Embed readable reasoning alongside conversation text. It can enlarge the projection and change cluster shape."
-              badge="Semantic"
+              title="Map readable reasoning"
+              description="Include readable reasoning summaries in the semantic map."
+              badge="Mapped"
             />
           </fieldset>
-          <div className="setup-policy-note"><ShieldCheck size={15} aria-hidden="true" /><span>Encrypted payloads are not readable search text. Excluding them from the projection keeps opaque or repetitive traces out of semantic neighborhoods.</span></div>
+          <div className="setup-policy-note"><ShieldCheck size={15} aria-hidden="true" /><span>Encrypted reasoning cannot be searched or embedded.</span></div>
         </section> : null}
       </div>
 
-      {embeddingModels.length > 0 && (
-        <div className="panel setup-embedding-model" aria-label="Embedding model setup">
+      {isAdvanced && embeddingModels.length > 0 ? (
+        <div className="panel setup-embedding-model" role="group" aria-label="Semantic map model">
           <div className="setup-embedding-copy">
             <Sparkles size={18} aria-hidden="true" />
             <div>
-              <strong>Local search model</strong>
-              <span>Used for the optional semantic map. Chat text never goes to Hugging Face.</span>
+              <strong>Semantic map model</strong>
+              <span>Runs locally. Hugging Face is used only to download model files.</span>
             </div>
           </div>
           <label>
@@ -558,7 +535,7 @@ export default function SetupPage({
             <div className="setup-embedding-status">
               <div>
                 <strong>{selectedEmbeddingModel.model_name}</strong>
-                <small>{selectedEmbeddingModel.description} {selectedEmbeddingModel.dimensions} dimensions.</small>
+                <small>{selectedEmbeddingModel.description}</small>
                 <span className={`freshness freshness-${selectedEmbeddingModel.status === "ready" ? "fresh" : "stale"}`}>{embeddingModelStatusLabel(selectedEmbeddingModel.status)}</span>
                 <small role={selectedEmbeddingModel.status === "failed" ? "alert" : undefined}>{selectedEmbeddingModel.error || selectedEmbeddingModel.message}</small>
               </div>
@@ -568,34 +545,44 @@ export default function SetupPage({
                   id="setup-download-embedding-model"
                   data-action-id={SETUP_ACTION_IDS.downloadEmbeddingModel}
                   type="button"
-                  onClick={() => void runAction(
-                    "download-model",
-                    SETUP_ACTION_IDS.downloadEmbeddingModel,
-                    onDownloadEmbeddingModel ? () => onDownloadEmbeddingModel(selectedEmbeddingModel.id) : undefined,
-                    "Starting the pinned Hugging Face download…",
-                    "Model download started. You can leave this page while it completes.",
-                  )}
+                  onClick={() => void downloadEmbedding()}
                   disabled={!onDownloadEmbeddingModel || embeddingDownloadActive || selectedEmbeddingModel.status === "unavailable"}
                 >
                   {embeddingDownloadActive ? <LoaderCircle className="setup-spin" size={15} aria-hidden="true" /> : <Download size={15} aria-hidden="true" />}
-                  {embeddingDownloadActive ? "Downloading…" : "Download from Hugging Face"}
+                  {embeddingDownloadActive ? "Downloading…" : "Download model"}
                 </button>
               )}
               <a href={selectedEmbeddingModel.source_url} target="_blank" rel="noreferrer">View model card</a>
             </div>
           )}
         </div>
-      )}
+      ) : null}
 
       <section className="panel setup-section setup-build" id="setup-section-build" aria-labelledby="setup-build-title">
+        {!isAdvanced && selectedEmbeddingModel && embeddingBlocked ? (
+          <div className="setup-model-blocker" role="status">
+            <span><strong>Semantic map model needed</strong><small>Download the local model before starting the first build.</small></span>
+            <button
+              className="button"
+              id="setup-download-embedding-model"
+              data-action-id={SETUP_ACTION_IDS.downloadEmbeddingModel}
+              type="button"
+              onClick={() => void downloadEmbedding()}
+              disabled={!onDownloadEmbeddingModel || embeddingDownloadActive || selectedEmbeddingModel.status === "unavailable"}
+            >
+              {embeddingDownloadActive ? <LoaderCircle className="setup-spin" size={15} aria-hidden="true" /> : <Download size={15} aria-hidden="true" />}
+              {embeddingDownloadActive ? "Downloading…" : "Download model"}
+            </button>
+          </div>
+        ) : null}
         <div className="setup-build-header">
-          <SectionHeading step={isAdvanced ? "04" : "03"} eyebrow="Preview and build" title="See the cost before you commit" id="setup-build-title">
-            Preview uses the selected machines, date range, providers, and reasoning policy. Start only after the estimate looks right.
+          <SectionHeading step="03" eyebrow="Archive build" title="Review and build" id="setup-build-title">
+            Check the selected records and storage estimate before starting.
           </SectionHeading>
           <div className="setup-build-actions">
             <button className="button" id="setup-preview-build" data-action-id={SETUP_ACTION_IDS.previewBuild} type="button" onClick={() => void preview()} disabled={!onPreview || action === "preview" || isRunning}>
               {action === "preview" ? <LoaderCircle className="setup-spin" size={15} aria-hidden="true" /> : <HardDrive size={15} aria-hidden="true" />}
-              {action === "preview" ? "Calculating…" : "Preview build"}
+              {action === "preview" ? "Calculating…" : "Preview estimate"}
             </button>
             <button className="button button-primary" id="setup-start-build" data-action-id={SETUP_ACTION_IDS.startBuild} type="button" onClick={() => void runAction(
               "start",
@@ -604,7 +591,7 @@ export default function SetupPage({
               "Starting the archive build…",
               "Archive build started. Live progress is shown below.",
             )} disabled={!onStartBuild || isRunning || config.providers.length === 0 || embeddingBlocked}>
-              <Play size={15} aria-hidden="true" /> {isRunning ? "Build in progress" : embeddingBlocked ? "Download model first" : "Start archive build"}
+              <Play size={15} aria-hidden="true" /> {isRunning ? "Build in progress" : "Start archive build"}
             </button>
           </div>
         </div>
@@ -619,16 +606,30 @@ export default function SetupPage({
         ) : undefined} cancelling={action === "cancel"} />
       </section>
 
-      <details className="panel setup-maintenance">
-        <summary>Backup, update, removal, and agent access</summary>
-        <p>These optional commands keep credentials in the ignored <code>.chatreview</code> directory.</p>
-        <div className="setup-maintenance-grid">
-          <div><strong>Back up</strong><code>scripts/backup.sh</code></div>
-          <div><strong>Update</strong><code>scripts/update.sh</code></div>
-          <div><strong>Remove services</strong><code>scripts/uninstall.sh</code></div>
-          <div><strong>Read-only MCP</strong><code>uv sync --extra mcp</code></div>
-        </div>
-      </details>
+      {summaryAgent}
+
+      {agentSetup ? (
+        <details className="panel setup-disclosure" id="setup-summary-provider-disclosure">
+          <summary id="setup-summary-provider-details" data-action-id="setup.summary-provider.toggle">
+            <span><strong>Configure a summary provider</strong><small>Use a CLI, local or network GPU, or API endpoint</small></span>
+            <ChevronRight className="setup-disclosure-icon" size={16} aria-hidden="true" />
+          </summary>
+          <AgentSetupGuide currentMachineName={connection?.centralMachine.name} {...agentSetup} />
+        </details>
+      ) : null}
+
+      {isAdvanced ? (
+        <details className="panel setup-maintenance">
+          <summary>Maintenance</summary>
+          <p>Optional service and agent commands. Credentials remain in the ignored <code>.chatreview</code> directory.</p>
+          <div className="setup-maintenance-grid">
+            <div><strong>Back up</strong><code>scripts/backup.sh</code></div>
+            <div><strong>Update</strong><code>scripts/update.sh</code></div>
+            <div><strong>Remove services</strong><code>scripts/uninstall.sh</code></div>
+            <div><strong>Read-only MCP</strong><code>uv sync --extra mcp</code></div>
+          </div>
+        </details>
+      ) : null}
     </div>
   );
 }
@@ -643,7 +644,7 @@ function ActionNotice({ feedback }: { feedback: ActionFeedback }) {
       data-action-id={feedback.actionId}
     >
       <Icon className={feedback.status === "pending" ? "setup-spin" : undefined} size={16} aria-hidden="true" />
-      <span><strong>{feedback.status === "pending" ? "Working" : feedback.status === "success" ? "Done" : "Needs attention"}</strong><small>{feedback.message}</small></span>
+      <span>{feedback.message}</span>
     </div>
   );
 }
@@ -657,7 +658,7 @@ function PolicyChoice({ checked, onChange, icon, title, description, badge }: { 
 }
 
 function EstimateSummary({ estimate, reasoningIncluded }: { estimate: SetupEstimate | null; reasoningIncluded: boolean }) {
-  if (!estimate) return <div className="setup-estimate-empty"><HardDrive size={19} aria-hidden="true" /><div><strong>No build estimate yet</strong><p>Choose a scope, then select “Preview build” to calculate records, storage, and semantic window counts.</p></div></div>;
+  if (!estimate) return <div className="setup-estimate-empty"><HardDrive size={19} aria-hidden="true" /><div><strong>No estimate yet</strong><p>Select “Preview estimate” to check records, storage, and semantic windows.</p></div></div>;
   const total = estimate.totalBytes ?? estimate.rawBytes ?? 0;
   const reasoning = estimate.encryptedReasoningBytes ?? 0;
   const reasoningShare = total > 0 ? Math.round((reasoning / total) * 100) : 0;
@@ -669,7 +670,7 @@ function EstimateMetric({ label, value, suffix = "", bytes = false }: { label: s
 }
 
 function BuildProgress({ progress, onCancel, cancelling }: { progress: SetupProgress | null; onCancel?: () => void; cancelling: boolean }) {
-  if (!progress || progress.status === "idle") return <div className="setup-progress setup-progress-idle"><span><Info size={15} aria-hidden="true" /> No build is running.</span><small>The archive remains available while a later semantic projection is built.</small></div>;
+  if (!progress || progress.status === "idle") return null;
   const percent = progressPercent(progress);
   const failed = progress.status === "failed" || progress.status === "interrupted";
   const complete = progress.status === "complete";
@@ -701,12 +702,6 @@ function machineTone(status: SetupMachineStatus): string {
   if (status === "syncing") return "partial";
   if (status === "offline") return "danger";
   return "neutral";
-}
-
-function scopeLabel(config: SetupConfig): string {
-  const start = config.historyStart || "oldest";
-  const end = config.historyEnd || "newest";
-  return `${start} → ${end}`;
 }
 
 function rangeSelected(value: (typeof QUICK_RANGES)[number]["value"], config: SetupConfig): boolean {

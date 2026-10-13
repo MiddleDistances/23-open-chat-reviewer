@@ -22,6 +22,39 @@ The semantic scope is separate and can later be rebuilt with its own date, provi
 project, event-kind, and reasoning-inclusion policy. See [Setup, scope, and storage](SETUP_AND_STORAGE.md)
 for the storage contract.
 
+### Source-root configuration
+
+Source roots are local to the machine running the sync. The familiar `~/.codex`,
+`~/.claude`, `~/.gemini`, and `~/Projects` locations are suggestions/fallbacks only.
+Configure one or more roots for each provider in the Setup screen or in the ignored
+`.chatreview/source-roots.json` file on that machine. A typical multi-root configuration
+looks like:
+
+```json
+{
+  "version": 1,
+  "roots": {
+    "codex": ["/root/.codex", "/home/reviewer/.codex"],
+    "claude": ["/home/reviewer/.claude"],
+    "gemini": ["/home/reviewer/.gemini"],
+    "git": ["/home/reviewer/Projects"]
+  }
+}
+```
+
+For environment-based setup, use the JSON-array variables
+`CHATREVIEW_CODEX_ROOTS`, `CHATREVIEW_CLAUDE_ROOTS`, `CHATREVIEW_GEMINI_ROOTS`, and
+`CHATREVIEW_GIT_ROOTS`. JSON keeps paths containing spaces intact. The singular root
+variables remain compatible for older one-folder setups. CLI root flags can be repeated
+once per folder; quote paths with spaces. A central web UI cannot change another
+machine's local configuration, and a Tailscale connection never performs a network
+filesystem scan. Removing a root changes future discovery only; it does not delete
+already archived evidence.
+
+Resolution is deterministic: repeated CLI flags win for that command, then the
+machine-local `source-roots.json`, plural JSON environment variables, legacy singular
+variables, and finally the standard folder suggestions.
+
 For several computers, host PostgreSQL and the derived worker on one central node and run
 sync-only writers on the others. Do not share a machine ID or database password between
 writers. See [Tailscale central archive and remote writers](TAILSCALE_MULTI_MACHINE.md).
@@ -39,8 +72,9 @@ Bound the initial conversation-file selection when required:
 scripts/chatreview-sync.sh --history-since 2026-01-01 --history-until 2026-08-30
 ```
 
-Codex dated session paths are selected exactly. Aggregate history files remain included;
-other provider files use a documented UTC modification-date fallback. Set
+Codex dated session paths are selected exactly across every configured Codex root.
+Aggregate history files remain included; other provider files use a documented UTC
+modification-date fallback. Set
 `CHATREVIEW_RAW_REASONING_RETENTION=redact` before the first sync to replace Codex
 `encrypted_content` fields with an audited marker/digest representation. Leave it at
 the default `preserve` when byte-exact provider payload replay is required.
@@ -151,3 +185,17 @@ If a retry is needed, preserve the same machine ID and source roots. Re-running 
 the normal recovery path. A broader history date range or changed reasoning policy is a
 new explicit scope choice; it should be previewed before starting and does not silently
 delete prior raw records. Derived semantic projections can be rebuilt independently.
+
+### Avoiding repeated archive scans
+
+Normal sync finalization keeps a durable signature for each source's revision and
+parser checkpoints. It reconciles session counts only for changed sources, and
+skips orphan-content pruning because normal ingestion preserves old revisions.
+Explicit archive rebuilds invalidate those checkpoints and retain full pruning.
+
+Episode preparation reuses unchanged session input signatures and recomputes only
+sessions belonging to changed sources, including related canonical provider-event
+identities. The source checkpoint is published only after a successful refresh;
+interrupted work and concurrent source updates are detected on the next pass.
+The first pass after installing this optimization establishes a full baseline.
+Direct projection-table edits must use the explicit rebuild/force path.

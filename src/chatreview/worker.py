@@ -82,6 +82,7 @@ def run_cycle(
             provider = provider_from_environment(
                 provider=selected_provider_kind(settings.data_dir),
                 runtime_root=settings.data_dir / "cli-runs",
+                config_dir=settings.data_dir,
             )
             resume_summary = ResumeSurfaceRefresher(
                 settings.database_url,

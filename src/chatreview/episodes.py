@@ -14,6 +14,7 @@ from chatreview.db import Session, database
 from chatreview.providers.base import is_reportable_error_signature, stable_hash
 from chatreview.search import build_fts_query
 from chatreview.semantic import corpus_revision
+from chatreview.source_changes import source_changes
 
 SEGMENTATION_VERSION = 5
 ACTIVE_GAP_CAP_SECONDS = 30 * 60
@@ -129,9 +130,7 @@ class EpisodeBuilder:
             episode_revision = connection.execute(
                 "SELECT value FROM schema_meta WHERE key='episode_corpus_revision'"
             ).fetchone()
-            version_current = bool(
-                current_version and current_version["value"] == str(SEGMENTATION_VERSION)
-            )
+            version_current = bool(current_version and current_version["value"] == str(SEGMENTATION_VERSION))
             generation = (
                 str(current_generation["value"])
                 if current_generation and version_current
@@ -169,8 +168,9 @@ class EpisodeBuilder:
 
             self.progress("Canonicalizing shared provider events")
             canonical = reconcile_canonical_events(connection, progress=self.progress)
-            self._prepare_session_inputs(connection)
-            rebuild_all = force or not version_current
+            changes = source_changes(connection, "episode_source_checkpoint_v1", canonical_dependencies=True)
+            rebuild_all = force or not version_current or canonical.fingerprinted_events > 0
+            self._prepare_session_inputs(connection, session_ids=None if rebuild_all else changes.session_ids)
             sessions = self._changed_sessions(connection, rebuild_all=rebuild_all)
             stale_session_ids = [
                 int(row["session_id"])
@@ -184,9 +184,7 @@ class EpisodeBuilder:
                     """
                 ).fetchall()
             ]
-            input_count = int(
-                connection.execute("SELECT COUNT(*) FROM episode_session_inputs").fetchone()[0]
-            )
+            input_count = int(connection.execute("SELECT COUNT(*) FROM episode_session_inputs").fetchone()[0])
             reused_sessions = max(0, input_count - len(sessions))
             self.progress(
                 f"Segmenting {len(sessions):,} changed sessions; "
@@ -194,9 +192,7 @@ class EpisodeBuilder:
             )
 
             if stale_session_ids:
-                connection.execute(
-                    "DELETE FROM episodes WHERE session_id=ANY(?)", (stale_session_ids,)
-                )
+                connection.execute("DELETE FROM episodes WHERE session_id=ANY(?)", (stale_session_ids,))
                 connection.execute(
                     "DELETE FROM episode_session_state WHERE session_id=ANY(?)",
                     (stale_session_ids,),
@@ -258,6 +254,7 @@ class EpisodeBuilder:
                 """,
                 (str(SEGMENTATION_VERSION),),
             )
+            changes.record(connection)
             connection.commit()
             return self._summary(
                 connection,
@@ -269,7 +266,7 @@ class EpisodeBuilder:
             )
 
     @staticmethod
-    def _prepare_session_inputs(connection: Session) -> None:
+    def _prepare_session_inputs(connection: Session, *, session_ids: list[int] | None = None) -> None:
         """Materialize compact revisions for the effective events in each session."""
 
         connection.execute(
@@ -283,6 +280,18 @@ class EpisodeBuilder:
             """
         )
         connection.execute("TRUNCATE episode_session_inputs")
+        if session_ids is not None:
+            connection.execute(
+                "INSERT INTO episode_session_inputs "
+                "SELECT state.session_id,state.input_event_count,state.input_max_event_id,"
+                "state.input_event_id_sum FROM episode_session_state state "
+                "JOIN sessions session ON session.id=state.session_id "
+                "WHERE NOT (state.session_id=ANY(?))",
+                (session_ids,),
+            )
+            if not session_ids:
+                connection.execute("ANALYZE episode_session_inputs")
+                return
         connection.execute(
             """
             INSERT INTO episode_session_inputs(
@@ -298,8 +307,10 @@ class EpisodeBuilder:
                   'compacted', 'parse-error', 'last-prompt', 'ai-title'
               )
               AND EXISTS (SELECT 1 FROM text_units unit WHERE unit.event_id=event.id)
-            GROUP BY event.session_id
             """
+            + ("" if session_ids is None else " AND event.session_id=ANY(?)")
+            + " GROUP BY event.session_id",
+            () if session_ids is None else (session_ids,),
         )
         connection.execute("ANALYZE episode_session_inputs")
 

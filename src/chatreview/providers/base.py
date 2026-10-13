@@ -161,6 +161,26 @@ def source_kind(path: Path, *, provider: str) -> str:
     return "session"
 
 
+def normalize_adapter_roots(value: Path | Iterable[Path]) -> tuple[Path, ...]:
+    """Return stable, de-duplicated roots for one provider adapter.
+
+    Adapters historically accepted one ``Path``.  Accepting either shape here
+    keeps that public seam compatible while allowing one machine to retain
+    histories under more than one operating-system account.
+    """
+
+    candidates = (value,) if isinstance(value, Path) else tuple(value)
+    roots: list[Path] = []
+    seen: set[Path] = set()
+    for candidate in candidates:
+        root = Path(candidate).expanduser().resolve(strict=False)
+        if root in seen:
+            continue
+        seen.add(root)
+        roots.append(root)
+    return tuple(roots)
+
+
 class ProviderAdapter(ABC):
     name: str
     parser_version: int = 1

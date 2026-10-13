@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import urllib.error
 
 import pytest
 
@@ -11,10 +12,35 @@ from chatreview.summary_providers import (
     OpenAICompatibleProvider,
     OpenAIResponsesProvider,
     SummaryProviderError,
+    _post_json,
     parse_json_object,
     provider_from_environment,
     resolve_cli_executable,
 )
+
+
+class _FakeResponse:
+    def __init__(self, body: bytes):
+        self.body = body
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return None
+
+    def read(self, limit: int = -1) -> bytes:
+        return self.body if limit < 0 else self.body[:limit]
+
+
+class _FakeOpener:
+    def __init__(self, outcome):
+        self.outcome = outcome
+
+    def open(self, _request, *, timeout):
+        if isinstance(self.outcome, BaseException):
+            raise self.outcome
+        return self.outcome
 
 
 def test_openai_compatible_provider_uses_schema_and_bearer_token(monkeypatch) -> None:
@@ -131,6 +157,9 @@ def test_environment_factory_supports_hosted_openai_compatible_endpoint(monkeypa
 
 def test_codex_cli_provider_uses_stdin_fixed_sandbox_and_schema(monkeypatch, tmp_path) -> None:
     calls = []
+    monkeypatch.setenv("CHATREVIEW_DATABASE_URL", "postgresql://archive-secret")
+    monkeypatch.setenv("CHATREVIEW_SUMMARY_API_KEY", "provider-secret")
+    monkeypatch.setenv("UNRELATED_API_TOKEN", "ambient-secret")
 
     def fake_run(argv, **kwargs):
         calls.append((argv, kwargs))
@@ -163,6 +192,10 @@ def test_codex_cli_provider_uses_stdin_fixed_sandbox_and_schema(monkeypatch, tmp
     assert options["input"].startswith("SYSTEM\n")
     assert "Archived conversation text" not in " ".join(argv)
     assert "shell" not in options
+    assert "HOME" in options["env"]
+    assert "CHATREVIEW_DATABASE_URL" not in options["env"]
+    assert "CHATREVIEW_SUMMARY_API_KEY" not in options["env"]
+    assert "UNRELATED_API_TOKEN" not in options["env"]
 
 
 def test_codex_cli_provider_normalizes_optional_fields_for_strict_output(
@@ -290,6 +323,68 @@ def test_provider_rejects_credentials_or_query_in_base_url() -> None:
         OpenAICompatibleProvider(model_name="model", base_url="https://key@example.com/v1")
     with pytest.raises(SummaryProviderError, match="query"):
         OpenAICompatibleProvider(model_name="model", base_url="https://example.com/v1?key=x")
+    with pytest.raises(SummaryProviderError, match="invalid host or port"):
+        OpenAICompatibleProvider(model_name="model", base_url="https://example.com:bad/v1")
+    with pytest.raises(SummaryProviderError, match="control characters"):
+        OpenAICompatibleProvider(model_name="model", base_url="https://example.com/v1\nnext")
+
+
+def test_provider_http_error_never_echoes_response_body(monkeypatch) -> None:
+    error = urllib.error.HTTPError(
+        "https://127.0.0.1/v1/chat/completions",
+        401,
+        "unauthorized",
+        {},
+        None,
+    )
+    monkeypatch.setattr(
+        "chatreview.summary_providers.urllib.request.build_opener",
+        lambda *_handlers: _FakeOpener(error),
+    )
+
+    with pytest.raises(SummaryProviderError) as raised:
+        _post_json(
+            "https://127.0.0.1/v1/chat/completions",
+            {"evidence": "must-not-leak"},
+            headers={"Authorization": "Bearer must-not-leak"},
+            timeout=1,
+        )
+
+    assert str(raised.value) == "provider HTTP 401"
+    assert "must-not-leak" not in str(raised.value)
+
+
+def test_provider_response_is_bounded(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "chatreview.summary_providers.urllib.request.build_opener",
+        lambda *_handlers: _FakeOpener(_FakeResponse(b"x" * (16 * 1024 * 1024 + 1))),
+    )
+
+    with pytest.raises(SummaryProviderError, match="safe size limit"):
+        _post_json(
+            "https://127.0.0.1/v1/chat/completions",
+            {},
+            headers=None,
+            timeout=1,
+        )
+
+
+def test_provider_post_revalidates_destination_policy(monkeypatch) -> None:
+    def unexpected_open(*_handlers):
+        raise AssertionError("unsafe destination must be rejected before HTTP")
+
+    monkeypatch.setattr(
+        "chatreview.summary_providers.urllib.request.build_opener",
+        unexpected_open,
+    )
+
+    with pytest.raises(SummaryProviderError, match="not an allowed destination"):
+        _post_json(
+            "http://169.254.169.254/v1/chat/completions",
+            {},
+            headers={"Authorization": "Bearer must-not-leak"},
+            timeout=1,
+        )
 
 
 def test_parse_json_object_rejects_non_object() -> None:

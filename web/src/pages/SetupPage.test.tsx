@@ -62,15 +62,20 @@ const missingEmbeddingModel: EmbeddingModelStatus = {
 };
 
 describe("archive setup page", () => {
-  it("keeps specialist retention controls out of the basic three-step path", () => {
+  it("keeps the basic setup focused on one three-step workflow", () => {
     window.localStorage.setItem("open-chat-reviewer.experience-mode", "basic");
-    render(<SetupPage firstRun />);
+    render(<SetupPage />);
 
-    expect(screen.getByRole("heading", { name: "Set up your chat archive" })).toBeInTheDocument();
-    expect(screen.getByText(/connect this computer, choose a date range, then build/i)).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /storage & search/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("checkbox", { name: /preserve encrypted raw reasoning/i })).not.toBeInTheDocument();
-    expect(document.getElementById("setup-step-build")).toHaveTextContent("03Build");
+    expect(screen.getByRole("heading", { name: "Archive setup" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Connect the machines that own the chats" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Choose what to process" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Review and build" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Reasoning settings" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: "Semantic map model" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Maintenance")).not.toBeInTheDocument();
+    expect(screen.queryByText(/no build is running/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/checks reviewed/i)).not.toBeInTheDocument();
+    expect(document.querySelector("details.setup-disclosure")).not.toHaveAttribute("open");
   });
 
   it("defaults to seven days and offers only the intended history presets", () => {
@@ -90,26 +95,26 @@ describe("archive setup page", () => {
   it("explains the machine, scope, and separate reasoning policies", () => {
     render(<SetupPage machines={[machine]} estimate={estimate} connection={connection} />);
 
-    expect(screen.getByRole("heading", { name: /make every machine part/i })).toBeInTheDocument();
-    expect(screen.getAllByText("Linux box")).toHaveLength(3);
+    expect(screen.getByRole("heading", { name: "Archive setup" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /connect the machines that own the chats/i })).toBeInTheDocument();
+    expect(screen.getByText("2 source folders configured")).toBeInTheDocument();
     expect(screen.getByText("1.9 MiB")).toBeInTheDocument();
-    expect(screen.getByRole("checkbox", { name: /preserve encrypted raw reasoning/i })).toBeChecked();
-    expect(screen.getByRole("checkbox", { name: /include readable reasoning in text search/i })).not.toBeChecked();
-    expect(screen.getByRole("checkbox", { name: /include reasoning in the vector projection/i })).not.toBeChecked();
-    expect(screen.getByText(/repositories, commits, paths—not file contents/i)).toBeInTheDocument();
-    expect(screen.getAllByRole("img", { name: /multi-machine architecture/i })).toHaveLength(2);
+    expect(screen.getByRole("checkbox", { name: /keep raw reasoning data/i })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: /search readable reasoning/i })).not.toBeChecked();
+    expect(screen.getByRole("checkbox", { name: /map readable reasoning/i })).not.toBeChecked();
+    expect(screen.getByText(/no file contents/i)).toBeInTheDocument();
     expect(screen.getByText("linux-box.example.ts.net:54329")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Setup guide" })).toHaveAttribute("data-action-id", "setup.guide.open");
-    expect(screen.getByRole("button", { name: "Preview build" })).toHaveAttribute("id", "setup-preview-build");
+    expect(screen.getByRole("button", { name: "Read setup guide" })).toHaveAttribute("data-action-id", "setup.guide.open");
+    expect(screen.getByRole("button", { name: "Preview estimate" })).toHaveAttribute("id", "setup-preview-build");
   });
 
   it("reports draft changes and keeps raw, search, and semantic controls distinct", () => {
     const onChange = vi.fn();
     render(<SetupPage onChange={onChange} />);
 
-    fireEvent.click(screen.getByRole("checkbox", { name: /include reasoning in the vector projection/i }));
-    fireEvent.click(screen.getByRole("checkbox", { name: /include readable reasoning in text search/i }));
-    fireEvent.click(screen.getByRole("checkbox", { name: /preserve encrypted raw reasoning/i }));
+    fireEvent.click(screen.getByRole("checkbox", { name: /map readable reasoning/i }));
+    fireEvent.click(screen.getByRole("checkbox", { name: /search readable reasoning/i }));
+    fireEvent.click(screen.getByRole("checkbox", { name: /keep raw reasoning data/i }));
 
     const last = onChange.mock.lastCall?.[0];
     expect(last).toMatchObject({
@@ -117,7 +122,7 @@ describe("archive setup page", () => {
       includeReadableReasoningInSearch: true,
       includeReasoningInProjection: true,
     });
-    expect(screen.getByRole("checkbox", { name: /preserve encrypted raw reasoning/i })).not.toBeChecked();
+    expect(screen.getByRole("checkbox", { name: /keep raw reasoning data/i })).not.toBeChecked();
   });
 
   it("offers a pinned Hugging Face download when the embedding model is not local", async () => {
@@ -133,8 +138,8 @@ describe("archive setup page", () => {
 
     expect(screen.getByLabelText("Embedding model preset")).toHaveValue("qwen3-embedding-0.6b");
     expect(screen.getByText("Download required")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Download model first" })).toBeDisabled();
-    fireEvent.click(screen.getByRole("button", { name: "Download from Hugging Face" }));
+    expect(screen.getByRole("button", { name: "Start archive build" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Download model" }));
 
     await waitFor(() => expect(onDownload).toHaveBeenCalledWith("qwen3-embedding-0.6b"));
     expect(screen.getByRole("status")).toHaveTextContent(/model download started/i);
@@ -146,7 +151,7 @@ describe("archive setup page", () => {
 
     fireEvent.change(screen.getByLabelText("History start date"), { target: { value: "2026-01-01" } });
     fireEvent.change(screen.getByLabelText("History end date"), { target: { value: "2026-08-30" } });
-    fireEvent.click(screen.getByRole("button", { name: "Preview build" }));
+    fireEvent.click(screen.getByRole("button", { name: "Preview estimate" }));
 
     await waitFor(() => expect(onPreview).toHaveBeenCalledWith(expect.objectContaining({ historyStart: "2026-01-01", historyEnd: "2026-08-30" })));
     expect(await screen.findByText("2.9 MiB")).toBeInTheDocument();
@@ -159,10 +164,11 @@ describe("archive setup page", () => {
     );
     render(<SetupPage machines={[machine]} connection={connection} onRefreshMachines={onRefreshMachines} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Add another machine" }));
+    fireEvent.click(screen.getByRole("button", { name: "Connect another machine" }));
     expect(screen.getByRole("heading", { name: /connect one other computer/i })).toBeInTheDocument();
     expect(screen.getByText(/performs the first resumable sync/i)).toBeInTheDocument();
     expect(screen.getByText(/scripts\/connect-computer.sh ~\/Downloads\/my-laptop.env/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Hide connection steps" })).toHaveAttribute("aria-expanded", "true");
 
     fireEvent.click(screen.getByRole("button", { name: "Check shared archive" }));
 
@@ -172,6 +178,31 @@ describe("archive setup page", () => {
       "data-action-id",
       "setup.machine.refresh",
     );
+  });
+
+  it("hydrates source-folder inputs when setup status arrives after the first render", () => {
+    const onSave = vi.fn();
+    const { rerender } = render(
+      <SetupPage
+        sourceRootSetup={{ roots: [], actionsEnabled: true, onSave }}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit folders" }));
+    rerender(
+      <SetupPage
+        sourceRootSetup={{
+          roots: [{ provider: "codex", path: "/root/.codex", exists: true, readable: true }],
+          actionsEnabled: true,
+          onSave,
+        }}
+      />,
+    );
+
+    // SetupRoute receives the status asynchronously. The keyed editor remounts
+    // with the new roots, so open it after that refresh before reading inputs.
+    fireEvent.click(screen.getByRole("button", { name: "Edit folders" }));
+    expect(screen.getByRole("textbox", { name: "Codex folder 1" })).toHaveValue("/root/.codex");
   });
 
   it("exposes progress semantics and machine selection to the host", () => {

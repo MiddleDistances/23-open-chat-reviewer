@@ -48,21 +48,37 @@ interface Props {
   loading?: boolean;
   error?: string | null;
   onRun?: (provider: SummaryAgentId, days: number) => void | Promise<void>;
+  onConfigure?: (provider: SummaryAgentId) => void;
 }
 
-export default function SummaryAgentPanel({ status, loading = false, error, onRun }: Props) {
+export default function SummaryAgentPanel({ status, loading = false, error, onRun, onConfigure }: Props) {
   const [selected, setSelected] = useState<SummaryAgentId | null>(status?.selected ?? null);
   const [days, setDays] = useState(30);
   const [submitting, setSubmitting] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (status?.selected) setSelected(status.selected);
+    setSelected(status?.selected ?? null);
   }, [status?.selected]);
 
   const providers = status?.providers ?? [];
   const selectedProvider = providers.find((provider) => provider.id === selected);
-  const active = Boolean(status?.run.active);
+  const runState = status?.run ?? null;
+  const latestRun = status?.latest_run ?? null;
+  const active = Boolean(runState?.active);
+  const runTimestamp = Date.parse(runState?.finished_at ?? runState?.started_at ?? "");
+  const latestTimestamp = Date.parse(latestRun?.completed_at ?? "");
+  const showRunState = Boolean(
+    runState?.status
+    && runState.status !== "idle"
+    && (
+      active
+      || !latestRun
+      || !Number.isFinite(runTimestamp)
+      || !Number.isFinite(latestTimestamp)
+      || runTimestamp >= latestTimestamp
+    ),
+  );
 
   async function run() {
     if (!selected || !onRun) return;
@@ -82,9 +98,9 @@ export default function SummaryAgentPanel({ status, loading = false, error, onRu
       <div className="setup-section-heading">
         <div className="setup-section-number"><Sparkles size={17} aria-hidden="true" /></div>
         <div>
-          <span className="eyebrow">Focus summaries</span>
-          <h2 id="summary-agent-title">Choose the agent that makes the archive useful</h2>
-          <p>Use local Qwen, or call a coding-agent CLI through the login already active on this machine.</p>
+          <span className="eyebrow">Optional</span>
+          <h2 id="summary-agent-title">Summaries</h2>
+          <p>Choose a provider and how much recent work to summarise.</p>
         </div>
       </div>
 
@@ -94,6 +110,7 @@ export default function SummaryAgentPanel({ status, loading = false, error, onRu
         {providers.map((provider) => {
           const ready = provider.installed && provider.authenticated !== false;
           const checked = provider.id === selected;
+          const canConfigure = !provider.installed && provider.id === "qwen" && Boolean(onConfigure);
           return (
             <button
               className={`summary-agent-choice ${checked ? "selected" : ""}`}
@@ -102,9 +119,15 @@ export default function SummaryAgentPanel({ status, loading = false, error, onRu
               type="button"
               role="radio"
               aria-checked={checked}
-              disabled={!provider.installed || active}
+              disabled={(!provider.installed && !canConfigure) || active}
               key={provider.id}
-              onClick={() => setSelected(provider.id)}
+              onClick={() => {
+                if (canConfigure) {
+                  onConfigure?.(provider.id);
+                  return;
+                }
+                setSelected(provider.id);
+              }}
             >
               <span className="summary-agent-icon"><Bot size={18} aria-hidden="true" /></span>
               <span><strong>{provider.label}</strong><small>{provider.detail}</small></span>
@@ -114,20 +137,26 @@ export default function SummaryAgentPanel({ status, loading = false, error, onRu
             </button>
           );
         })}
-        {!loading && providers.length === 0 ? (
+        {loading ? (
+          <div className="setup-empty-card" role="status" aria-live="polite">
+            <LoaderCircle className="setup-spin" size={18} aria-hidden="true" />
+            <p>Checking available providers…</p>
+          </div>
+        ) : providers.length === 0 ? (
           <div className="setup-empty-card"><CircleAlert size={18} aria-hidden="true" /><p>No summary agents were detected.</p></div>
         ) : null}
       </div>
 
       <div className="summary-agent-actions">
-        <label>
-          <span>Conversation history</span>
+        <label htmlFor="summary-history-window">
+          <span>Summary window</span>
           <select id="summary-history-window" data-action-id="summary.scope.days" value={days} onChange={(event) => setDays(Number(event.target.value))} disabled={active}>
-            <option value={7}>Last 7 days</option>
-            <option value={30}>Last 30 days</option>
-            <option value={90}>Last 90 days</option>
-            <option value={365}>Last year</option>
+            <option value={7}>Past 7 days</option>
+            <option value={30}>Past 30 days</option>
+            <option value={90}>Past 90 days</option>
+            <option value={365}>Past year</option>
           </select>
+          <small>Only summaries are affected; archive history is unchanged.</small>
         </label>
         <button
           className="primary-button"
@@ -138,24 +167,24 @@ export default function SummaryAgentPanel({ status, loading = false, error, onRu
           onClick={run}
         >
           {active || submitting ? <LoaderCircle className="setup-spin" size={15} aria-hidden="true" /> : <Play size={15} aria-hidden="true" />}
-          {active ? "Summaries are running" : submitting ? "Starting…" : "Save and run summaries"}
+          {active ? "Summaries are running" : submitting ? "Starting…" : "Run summaries"}
         </button>
       </div>
 
-      {status?.run.status && status.run.status !== "idle" ? (
-        <div className={`summary-agent-progress ${status.run.status}`} aria-live="polite">
-          <div><strong>{status.run.message ?? status.run.status}</strong><Badge tone={active ? "warning" : status.run.status === "complete" ? "success" : "neutral"}>{status.run.status}</Badge></div>
-          {status.run.started_at ? <small>Started {formatDate(status.run.started_at, true)}</small> : null}
-          {status.run.error ? <p>{status.run.error}</p> : null}
+      {showRunState && runState ? (
+        <div className={`summary-agent-progress ${runState.status}`} aria-live="polite">
+          <div><strong>{runState.message ?? runState.status}</strong><Badge tone={active ? "warning" : runState.status === "complete" ? "success" : "neutral"}>{runState.status}</Badge></div>
+          {runState.started_at ? <small>Started {formatDate(runState.started_at, true)}</small> : null}
+          {runState.error ? <p>{runState.error}</p> : null}
         </div>
-      ) : status?.latest_run ? (
+      ) : latestRun ? (
         <div className="summary-agent-progress complete">
-          <div><strong>Last batch: {status.latest_run.generated_count ?? 0} generated, {status.latest_run.reused_count ?? 0} unchanged</strong><Badge tone="success">{status.latest_run.status ?? "complete"}</Badge></div>
-          {status.latest_run.completed_at ? <small>Completed {formatDate(status.latest_run.completed_at, true)}</small> : null}
+          <div><strong>Last batch{latestRun.model_name ? ` · ${latestRun.model_name}` : ""}: {latestRun.generated_count ?? 0} generated, {latestRun.reused_count ?? 0} unchanged</strong><Badge tone="success">{latestRun.status ?? "complete"}</Badge></div>
+          {latestRun.completed_at ? <small>Completed {formatDate(latestRun.completed_at, true)}</small> : null}
         </div>
       ) : null}
 
-      <p className="summary-agent-security"><ShieldCheck size={14} aria-hidden="true" /> The app never reads or copies CLI tokens. It passes one bounded evidence packet over stdin in an empty temporary directory; tools are disabled for Claude and sandboxed read-only for Codex and Gemini.</p>
+      <p className="summary-agent-security"><ShieldCheck size={14} aria-hidden="true" /> CLI credentials stay with the CLI. ChatReviewer sends only a bounded evidence packet.</p>
     </section>
   );
 }

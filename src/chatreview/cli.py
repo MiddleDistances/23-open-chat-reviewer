@@ -10,6 +10,7 @@ import subprocess
 import sys
 import textwrap
 import webbrowser
+from contextlib import suppress
 from dataclasses import asdict, replace
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -58,8 +59,15 @@ from chatreview.semantic import (
     list_semantic_runs,
 )
 from chatreview.source_selection import HistoryScope
-from chatreview.summary_jobs import selected_provider_kind
+from chatreview.summary_jobs import SummaryAgentId, save_summary_agent, selected_provider_kind
 from chatreview.summary_providers import SummaryProviderError, provider_from_environment
+from chatreview.summary_setup import (
+    SummaryConfigurationError,
+    SummaryProbeResult,
+    current_configuration,
+    probe_openai_compatible,
+    save_runtime_configuration,
+)
 from chatreview.timesheets import (
     TimesheetFilters,
     build_timesheet,
@@ -82,6 +90,8 @@ timesheets_app = typer.Typer(help="Build and export overlap-aware workload inter
 worker_app = typer.Typer(help="Run repeatable sync and derivation cycles.")
 writer_app = typer.Typer(help="Install and operate source-only writer machines.")
 network_app = typer.Typer(help="Prepare private central-node connectivity.")
+summary_app = typer.Typer(help="Configure the machine-local summary provider.")
+sources_app = typer.Typer(help="Inspect machine-local conversation and Git source folders.")
 app.add_typer(db_app, name="db")
 app.add_typer(resume_app, name="resume")
 app.add_typer(semantic_app, name="semantic")
@@ -89,17 +99,31 @@ app.add_typer(timesheets_app, name="timesheets")
 app.add_typer(worker_app, name="worker")
 app.add_typer(writer_app, name="writer")
 app.add_typer(network_app, name="network")
+app.add_typer(summary_app, name="summary")
+app.add_typer(sources_app, name="sources")
 
 DataDir = Annotated[
     Path | None,
     typer.Option("--data-dir", help="Runtime state directory (default: ./.chatreview)."),
 ]
-CodexRoot = Annotated[Path | None, typer.Option("--codex-root", help="Codex home/history root.")]
-ClaudeRoot = Annotated[Path | None, typer.Option("--claude-root", help="Claude home/history root.")]
-GeminiRoot = Annotated[Path | None, typer.Option("--gemini-root", help="Gemini CLI home/history root.")]
+CodexRoot = Annotated[
+    list[Path] | None,
+    typer.Option("--codex-root", help="Codex home/history root; repeat for another location."),
+]
+ClaudeRoot = Annotated[
+    list[Path] | None,
+    typer.Option("--claude-root", help="Claude home/history root; repeat for another location."),
+]
+GeminiRoot = Annotated[
+    list[Path] | None,
+    typer.Option("--gemini-root", help="Gemini CLI home/history root; repeat for another location."),
+]
 GitRoot = Annotated[
-    Path | None,
-    typer.Option("--git-root", help="Root containing recursively discovered Git repositories."),
+    list[Path] | None,
+    typer.Option(
+        "--git-root",
+        help="Root containing recursively discovered Git repositories; repeat for another location.",
+    ),
 ]
 
 
@@ -112,10 +136,10 @@ def _close_database_pools(context: typer.Context) -> None:
 
 def _settings(
     data_dir: Path | None,
-    codex_root: Path | None,
-    claude_root: Path | None,
-    gemini_root: Path | None = None,
-    git_root: Path | None = None,
+    codex_root: list[Path] | None,
+    claude_root: list[Path] | None,
+    gemini_root: list[Path] | None = None,
+    git_root: list[Path] | None = None,
 ) -> Settings:
     return default_settings(
         data_dir=data_dir,
@@ -128,12 +152,12 @@ def _settings(
 
 def _adapters(settings: Settings, *, include_git: bool) -> list:
     adapters = [
-        CodexAdapter(settings.codex_root),
-        ClaudeAdapter(settings.claude_root),
-        GeminiAdapter(settings.gemini_root),
+        CodexAdapter(settings.roots_for("codex")),
+        ClaudeAdapter(settings.roots_for("claude")),
+        GeminiAdapter(settings.roots_for("gemini")),
     ]
     if include_git:
-        adapters.append(GitAdapter(settings.git_root, settings.git_sources_dir))
+        adapters.append(GitAdapter(settings.roots_for("git"), settings.git_sources_dir))
     return adapters
 
 
@@ -152,11 +176,189 @@ def _provider_selection(provider: list[str] | None, *, include_git: bool) -> set
     return None if include_git else {"codex", "claude", "gemini"}
 
 
+def _source_root_has_input(provider: str, root: Path) -> bool:
+    if provider == "codex":
+        return (root / "sessions").is_dir() or (root / "history.jsonl").is_file()
+    if provider == "claude":
+        return (root / "projects").is_dir() or (root / "history.jsonl").is_file()
+    if provider == "gemini":
+        return (root / "tmp").is_dir()
+    return root.is_dir()
+
+
+@sources_app.command("check")
+def sources_check(
+    data_dir: DataDir = None,
+    codex_root: CodexRoot = None,
+    claude_root: ClaudeRoot = None,
+    gemini_root: GeminiRoot = None,
+    git_root: GitRoot = None,
+) -> None:
+    """Verify that at least one configured machine-local source folder exists."""
+
+    settings = _settings(data_dir, codex_root, claude_root, gemini_root, git_root)
+    found = False
+    configured = 0
+    for provider in ("codex", "claude", "gemini", "git"):
+        for root in settings.roots_for(provider):
+            configured += 1
+            present = _source_root_has_input(provider, root)
+            found = found or present
+            typer.echo(f"[{'OK' if present else 'INFO':4}] {provider}: {root}")
+    if not found:
+        detail = "no folders are configured" if configured == 0 else "configured folders contain no sources"
+        typer.echo(f"No Codex, Claude, Gemini, or Git sources found: {detail}.", err=True)
+        raise typer.Exit(1)
+
+
 def _tailscale_identity() -> tuple[str, str] | None:
     """Return the active Tailscale IPv4 and preferred MagicDNS name, if available."""
 
     identity = tailscale_identity()
     return (identity.ipv4, identity.dns_name) if identity else None
+
+
+def _summary_data_dir(data_dir: Path | None, *, create: bool = True) -> Path:
+    """Resolve the local summary setup directory without loading database settings."""
+
+    configured = os.environ.get("CHATREVIEW_DATA_DIR", "").strip()
+    resolved = (data_dir or (Path(configured) if configured else Path(".chatreview"))).expanduser()
+    if create:
+        resolved.mkdir(mode=0o700, parents=True, exist_ok=True)
+        with suppress(OSError):
+            resolved.chmod(0o700)
+    return resolved
+
+
+def _print_summary_probe(result: SummaryProbeResult) -> None:
+    """Print staged, credential-free probe feedback for a terminal user or agent."""
+
+    for check in result.checks:
+        marker = "OK" if check.get("status") == "passed" else "FAIL"
+        typer.echo(f"[{marker:4}] {check.get('message', 'Summary endpoint check')}")
+    if result.models:
+        typer.echo("Models: " + ", ".join(result.models))
+    typer.echo(result.message)
+
+
+@summary_app.command("configure")
+def summary_configure(
+    base_url: Annotated[
+        str,
+        typer.Option("--base-url", help="OpenAI-compatible model server URL, including /v1."),
+    ],
+    model: Annotated[
+        str | None,
+        typer.Option("--model", help="Model id; omitted only when the endpoint advertises one model."),
+    ] = None,
+    disable_thinking: Annotated[
+        bool,
+        typer.Option(
+            "--disable-thinking/--allow-thinking",
+            help="Ask compatible Qwen servers not to return reasoning traces.",
+        ),
+    ] = False,
+    data_dir: DataDir = None,
+) -> None:
+    """Probe and save one credential-free OpenAI-compatible summary configuration."""
+
+    runtime_dir = _summary_data_dir(data_dir)
+    try:
+        result = probe_openai_compatible(
+            base_url,
+            model=model,
+            api_key=os.environ.get("CHATREVIEW_SUMMARY_API_KEY") or None,
+        )
+    except SummaryConfigurationError as exc:
+        typer.echo(f"Summary configuration stopped: {exc}", err=True)
+        raise typer.Exit(2) from exc
+    _print_summary_probe(result)
+    if not result.ok:
+        raise typer.Exit(1)
+    selected_model = result.selected_model
+    if selected_model is None:
+        if len(result.models) != 1:
+            typer.echo(
+                "More than one model is available; run configure again with --model MODEL.",
+                err=True,
+            )
+            raise typer.Exit(2)
+        selected_model = result.models[0]
+    try:
+        configuration = save_runtime_configuration(
+            runtime_dir,
+            provider="openai-compatible",
+            model=selected_model,
+            base_url=result.base_url or base_url,
+            disable_thinking=disable_thinking,
+        )
+    except SummaryConfigurationError as exc:
+        typer.echo(f"Summary configuration could not be saved: {exc}", err=True)
+        raise typer.Exit(2) from exc
+    typer.echo(f"Saved summary provider for model {configuration.model}.")
+    typer.echo(f"Runtime file: {runtime_dir / 'summary-provider.json'} (mode 600)")
+
+
+@summary_app.command("probe")
+def summary_probe(
+    base_url: Annotated[
+        str | None,
+        typer.Option("--base-url", help="Endpoint to test; defaults to saved/environment settings."),
+    ] = None,
+    model: Annotated[
+        str | None,
+        typer.Option("--model", help="Optional model id to verify."),
+    ] = None,
+    data_dir: DataDir = None,
+) -> None:
+    """Run a non-mutating staged check against the configured summary endpoint."""
+
+    runtime_dir = _summary_data_dir(data_dir, create=False)
+    try:
+        configuration = current_configuration(runtime_dir)
+    except SummaryConfigurationError as exc:
+        typer.echo(f"Summary probe stopped: {exc}", err=True)
+        raise typer.Exit(2) from exc
+    target_url = base_url or (configuration.base_url if configuration else None)
+    target_model = model or (configuration.model if configuration else None)
+    if not target_url:
+        typer.echo(
+            "No summary endpoint is configured; provide --base-url or run summary configure first.",
+            err=True,
+        )
+        raise typer.Exit(2)
+    result = probe_openai_compatible(
+        target_url,
+        model=target_model,
+        api_key=os.environ.get("CHATREVIEW_SUMMARY_API_KEY") or None,
+    )
+    _print_summary_probe(result)
+    if not result.ok:
+        raise typer.Exit(1)
+
+
+@summary_app.command("use")
+def summary_use(
+    provider: Annotated[
+        SummaryAgentId,
+        typer.Argument(help="Summary agent: qwen, codex-cli, claude-cli, or gemini-cli."),
+    ],
+    data_dir: DataDir = None,
+) -> None:
+    """Select one allowlisted summary agent without touching credentials or the database."""
+
+    runtime_dir = _summary_data_dir(data_dir)
+    try:
+        save_summary_agent(runtime_dir, provider)
+    except ValueError as exc:
+        # Keep a defensive runtime check even though Typer constrains the argument.
+        typer.echo(f"Summary agent selection stopped: {exc}", err=True)
+        raise typer.Exit(2) from exc
+    typer.echo(f"Selected summary agent: {provider}.")
+    if provider == "qwen":
+        typer.echo("Run summary probe to verify the configured OpenAI-compatible endpoint.")
+    else:
+        typer.echo("The agent will use its existing login when the next summary run starts.")
 
 
 @app.command("init")
@@ -210,10 +412,10 @@ def initialize(
         "CHATREVIEW_MACHINE_ID": str(uuid4()),
         "CHATREVIEW_MACHINE_NAME": platform.node() or "local-machine",
         "CHATREVIEW_NODE_ROLE": role,
-        "CHATREVIEW_CODEX_ROOT": str(Path.home() / ".codex"),
-        "CHATREVIEW_CLAUDE_ROOT": str(Path.home() / ".claude"),
-        "CHATREVIEW_GEMINI_ROOT": str(Path.home() / ".gemini"),
-        "CHATREVIEW_GIT_ROOT": str(Path.home() / "Projects"),
+        "CHATREVIEW_CODEX_ROOTS": json.dumps([str(Path.home() / ".codex")]),
+        "CHATREVIEW_CLAUDE_ROOTS": json.dumps([str(Path.home() / ".claude")]),
+        "CHATREVIEW_GEMINI_ROOTS": json.dumps([str(Path.home() / ".gemini")]),
+        "CHATREVIEW_GIT_ROOTS": json.dumps([str(Path.home() / "Projects")]),
         "CHATREVIEW_ENABLE_GIT": "1",
         "CHATREVIEW_ENABLE_SUMMARIES": "0",
         **network_values,
@@ -319,26 +521,27 @@ def _doctor(
     settings = _settings(data_dir, codex_root, claude_root, gemini_root, git_root)
     checks: list[tuple[str, bool, str, bool]] = [
         ("Python >= 3.12", sys.version_info >= (3, 12), sys.version.split()[0], True),
-        (
-            "Codex sessions",
-            (settings.codex_root / "sessions").is_dir(),
-            str(settings.codex_root),
-            False,
-        ),
-        (
-            "Claude projects",
-            (settings.claude_root / "projects").is_dir(),
-            str(settings.claude_root),
-            False,
-        ),
-        (
-            "Gemini conversations",
-            bool(GeminiAdapter(settings.gemini_root).discover()),
-            str(settings.gemini_root),
-            False,
-        ),
-        ("Git projects", settings.git_root.is_dir(), str(settings.git_root), False),
     ]
+    root_checks = {
+        "codex": lambda root: (root / "sessions").is_dir() or (root / "history.jsonl").is_file(),
+        "claude": lambda root: (root / "projects").is_dir() or (root / "history.jsonl").is_file(),
+        "gemini": lambda root: bool(GeminiAdapter(root).discover()),
+        "git": lambda root: root.is_dir(),
+    }
+    labels = {
+        "codex": "Codex sessions",
+        "claude": "Claude projects",
+        "gemini": "Gemini conversations",
+        "git": "Git projects",
+    }
+    for provider in ("codex", "claude", "gemini", "git"):
+        roots = settings.roots_for(provider)
+        if not roots:
+            checks.append((labels[provider], False, "disabled (no folders configured)", False))
+            continue
+        for index, root in enumerate(roots, start=1):
+            suffix = f" {index}/{len(roots)}" if len(roots) > 1 else ""
+            checks.append((f"{labels[provider]}{suffix}", root_checks[provider](root), str(root), False))
     try:
         report = database_doctor(settings.database_url)
         database_ok = {"vector", "pg_trgm"}.issubset(report.extensions)
@@ -508,7 +711,9 @@ def sync_command(
         history_scope = HistoryScope(history_since, history_until)
     except (TypeError, ValueError) as exc:
         raise typer.BadParameter(str(exc)) from exc
-    if (providers is None or "gemini" in providers) and not GeminiAdapter(settings.gemini_root).discover():
+    if (
+        providers is None or "gemini" in providers
+    ) and not GeminiAdapter(settings.roots_for("gemini")).discover():
         typer.echo(
             "Gemini: no local session/history documents were found; if Gemini CLI did not "
             "retain them, an export or supported API source is required."
@@ -607,6 +812,7 @@ def resume_refresh_command(
                 model_name=model,
                 base_url=base_url,
                 runtime_root=settings.data_dir / "cli-runs",
+                config_dir=settings.data_dir,
             )
         )
         summary = ResumeSurfaceRefresher(

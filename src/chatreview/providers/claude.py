@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Iterable
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -10,6 +11,7 @@ from chatreview.providers.base import (
     add_fragment,
     extract_common_artifacts,
     json_text,
+    normalize_adapter_roots,
     source_kind,
 )
 from chatreview.types import Artifact, ParsedRecord, SourceSpec, TextFragment
@@ -19,22 +21,31 @@ class ClaudeAdapter(ProviderAdapter):
     name = "claude"
     parser_version = 3
 
-    def __init__(self, root: Path) -> None:
-        self.root = root
+    def __init__(self, root: Path | Iterable[Path]) -> None:
+        self.roots = normalize_adapter_roots(root)
+        self.root = self.roots[0] if self.roots else None
 
     def discover(self) -> list[SourceSpec]:
         found: list[SourceSpec] = []
-        projects = self.root / "projects"
-        if projects.exists():
-            for directory, names, files in os.walk(projects, followlinks=False):
-                names.sort()
-                for filename in sorted(files):
-                    if filename.endswith(".jsonl"):
-                        path = Path(directory) / filename
-                        found.append(SourceSpec(self.name, path, source_kind(path, provider=self.name)))
-        history = self.root / "history.jsonl"
-        if history.is_file():
-            found.append(SourceSpec(self.name, history, "history"))
+        seen: set[tuple[Path, str]] = set()
+        for root in self.roots:
+            projects = root / "projects"
+            if projects.exists():
+                for directory, names, files in os.walk(projects, followlinks=False):
+                    names.sort()
+                    for filename in sorted(files):
+                        if filename.endswith(".jsonl"):
+                            path = (Path(directory) / filename).resolve(strict=False)
+                            kind = source_kind(path, provider=self.name)
+                            key = (path, kind)
+                            if key not in seen:
+                                seen.add(key)
+                                found.append(SourceSpec(self.name, path, kind))
+            history = (root / "history.jsonl").resolve(strict=False)
+            key = (history, "history")
+            if history.is_file() and key not in seen:
+                seen.add(key)
+                found.append(SourceSpec(self.name, history, "history"))
         return sorted(found, key=lambda item: str(item.path))
 
     def parse(self, data: dict[str, Any], source: SourceSpec) -> ParsedRecord:

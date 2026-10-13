@@ -12,6 +12,11 @@ import SummaryAgentPanel, {
   type SummaryAgentId,
   type SummaryAgentStatus,
 } from "./SummaryAgentPanel";
+import type {
+  AgentCliOption,
+  AgentSetupRequest,
+  AgentSetupResult,
+} from "./AgentSetupGuide";
 
 interface SetupStatusResponse {
   generated_at: string;
@@ -21,6 +26,7 @@ interface SetupStatusResponse {
     path: string | null;
     exists: boolean;
     readable: boolean;
+    issue?: string | null;
   }>;
   database: {
     available: boolean;
@@ -29,6 +35,9 @@ interface SetupStatusResponse {
     ingestion_failed: number;
     error: string | null;
   };
+  source_actions_enabled?: boolean;
+  source_actions_message?: string;
+  source_runtime_file?: string;
 }
 
 interface SetupPreviewResponse {
@@ -94,6 +103,33 @@ interface SetupConnectionResponse {
   warnings: string[];
 }
 
+interface SummaryAgentConfigurationResponse {
+  configured: boolean;
+  provider: string | null;
+  model: string | null;
+  base_url: string | null;
+  disable_thinking: boolean;
+  source: string;
+  updated_at: string | null;
+  api_key_configured: boolean;
+  runtime_file: string;
+  /** Explicit operator opt-in for browser-side endpoint probe/save actions. */
+  actions_enabled?: boolean;
+  actions_message?: string;
+  error: string | null;
+}
+
+interface SummaryProviderProbeResponse {
+  ok: boolean;
+  stage: string;
+  message: string;
+  base_url: string | null;
+  models: string[];
+  selected_model: string | null;
+  model_available: boolean | null;
+  checks: Array<{ id: string; status: string; message: string }>;
+}
+
 function requestBody(config: SetupConfig) {
   return {
     history_start: config.historyStart || null,
@@ -132,7 +168,7 @@ function estimateFromPreview(preview: SetupPreviewResponse): SetupEstimate {
 }
 
 export default function SetupRoute() {
-  const { data: setupStatus, refresh: refreshStatus } =
+  const { data: setupStatus, setData: setSetupStatus, refresh: refreshStatus } =
     useApi<SetupStatusResponse>("/api/setup/status");
   const { data: connectionResponse } =
     useApi<SetupConnectionResponse>("/api/setup/connection");
@@ -151,6 +187,23 @@ export default function SetupRoute() {
     error: summaryAgentError,
     refresh: refreshSummaryAgent,
   } = useApi<SummaryAgentStatus>("/api/summary-agent");
+  const {
+    data: summaryConfiguration,
+    loading: summaryConfigurationLoading,
+    refresh: refreshSummaryConfiguration,
+  } = useApi<SummaryAgentConfigurationResponse>("/api/summary-agent/configuration");
+
+  const agentCliOptions = useMemo<AgentCliOption[]>(
+    () => (summaryAgent?.providers ?? [])
+      .filter((provider) => provider.id !== "qwen")
+      .map((provider) => ({
+        id: provider.id,
+        label: provider.label,
+        ready: provider.installed && provider.authenticated !== false,
+        detail: provider.detail,
+      })),
+    [summaryAgent?.providers],
+  );
 
   useEffect(() => {
     if (
@@ -293,6 +346,16 @@ export default function SetupRoute() {
     return result.message;
   }
 
+  async function saveSourceRoots(
+    roots: Array<{ provider: "codex" | "claude" | "gemini" | "git"; path: string }>,
+  ) {
+    const result = await api<SetupStatusResponse>("/api/setup/sources", {
+      method: "PUT",
+      body: JSON.stringify({ roots }),
+    });
+    setSetupStatus(result);
+  }
+
   async function runSummaries(provider: SummaryAgentId, days: number) {
     await api("/api/summary-agent", {
       method: "PUT",
@@ -305,9 +368,77 @@ export default function SetupRoute() {
     refreshSummaryAgent();
   }
 
+  async function discoverSummaryModel(request: AgentSetupRequest): Promise<AgentSetupResult> {
+    if (!request.endpoint) throw new Error("Enter a model URL before discovering models");
+    const result = await api<SummaryProviderProbeResponse>("/api/summary-agent/probe", {
+      method: "POST",
+      body: JSON.stringify({
+        base_url: request.endpoint,
+        model: request.model || null,
+      }),
+    });
+    return {
+      ready: result.ok,
+      message: result.message,
+      endpoint: result.base_url,
+      model: result.selected_model,
+      models: result.models,
+    };
+  }
+
+  async function saveSummaryProvider(request: AgentSetupRequest): Promise<void> {
+    if (!request.endpoint || !request.model) {
+      throw new Error("Choose an endpoint and model before saving");
+    }
+    await api("/api/summary-agent/configuration", {
+      method: "PUT",
+      body: JSON.stringify({
+        provider: "openai-compatible",
+        model: request.model,
+        base_url: request.endpoint,
+        disable_thinking: summaryConfiguration?.disable_thinking ?? false,
+      }),
+    });
+    await api("/api/summary-agent", {
+      method: "PUT",
+      body: JSON.stringify({ provider: "qwen" }),
+    });
+    refreshSummaryConfiguration();
+    refreshSummaryAgent();
+  }
+
+  async function testSummaryProvider(request: AgentSetupRequest): Promise<AgentSetupResult> {
+    if (!request.endpoint || !request.model) {
+      throw new Error("Choose an endpoint and model before testing");
+    }
+    const result = await api<SummaryProviderProbeResponse>("/api/summary-agent/probe", {
+      method: "POST",
+      body: JSON.stringify({ base_url: request.endpoint, model: request.model }),
+    });
+    return {
+      ready: result.ok && result.model_available !== false,
+      message: result.message,
+      endpoint: result.base_url,
+      model: result.selected_model,
+      models: result.models,
+    };
+  }
+
+  function openSummaryConfiguration() {
+    const guideTitle = document.getElementById("setup-agent-guide-title");
+    const disclosure = guideTitle?.closest("details");
+    if (disclosure instanceof HTMLDetailsElement) disclosure.open = true;
+    guideTitle?.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
+    const localGpuChoice = document.getElementById("setup-agent-target-local-gpu");
+    localGpuChoice?.click();
+    localGpuChoice?.focus();
+  }
+
   return (
     <SetupPage
-      firstRun={Boolean(setupStatus && setupStatus.database.ingestion_complete === 0)}
       machines={machines}
       connection={connection}
       estimate={preview ? estimateFromPreview(preview) : null}
@@ -318,6 +449,22 @@ export default function SetupRoute() {
       onCancelBuild={cancelBuild}
       onDownloadEmbeddingModel={downloadEmbeddingModel}
       onRefreshMachines={refreshMachines}
+      sourceRootSetup={{
+        roots: setupStatus?.roots ?? [],
+        actionsEnabled: setupStatus?.source_actions_enabled === true,
+        actionsMessage: setupStatus?.source_actions_message,
+        onSave: saveSourceRoots,
+      }}
+      agentSetup={{
+        cliOptions: agentCliOptions,
+        initialEndpoint: summaryConfiguration?.base_url,
+        initialModel: summaryConfiguration?.model,
+        configurationLoaded: !summaryConfigurationLoading,
+        directActionsMessage: summaryConfiguration?.actions_message,
+        onDiscoverModel: summaryConfiguration?.actions_enabled === true ? discoverSummaryModel : undefined,
+        onSaveProvider: summaryConfiguration?.actions_enabled === true ? saveSummaryProvider : undefined,
+        onTestProvider: summaryConfiguration?.actions_enabled === true ? testSummaryProvider : undefined,
+      }}
       onOpenInstructions={() =>
         window.open(
           "https://github.com/MiddleDistances/23-open-chat-reviewer/blob/main/docs/SETUP_AND_STORAGE.md",
@@ -338,6 +485,7 @@ export default function SetupRoute() {
           loading={summaryAgentLoading}
           error={summaryAgentError}
           onRun={runSummaries}
+          onConfigure={openSummaryConfiguration}
         />
       }
     />

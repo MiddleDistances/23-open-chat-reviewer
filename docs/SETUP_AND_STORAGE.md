@@ -14,6 +14,10 @@ service; the GUI does not ask for or display a token. Select a bounded history w
 and choose **Save and run summaries**. Progress is recorded in the ignored
 `.chatreview/summary-run.json` file.
 
+For the complete provider choice and verification flow, including a same-machine or
+network GPU and a prompt for a user's own coding agent, see
+[Summary setup](SUMMARY_SETUP.md).
+
 Only fixed adapters are available. A free-form command field is deliberately excluded
 because the setup page may be reachable from another tailnet machine and arbitrary CLI
 arguments would be equivalent to remote command execution. For unattended refreshes,
@@ -48,6 +52,50 @@ computers, put PostgreSQL, the web process, and the derived worker on the centra
 and connect writer nodes over a private Tailscale network. The web process has no
 built-in user authentication; network access is part of the security boundary.
 
+## Configure source folders on each machine
+
+Source paths are a per-machine setting. The familiar `~/.codex`, `~/.claude`,
+`~/.gemini`, and `~/Projects` locations are only suggestions/fallbacks. Do not assume
+that a user, login name, home directory, or repository layout is the same on another
+machine.
+
+Each provider accepts multiple folders. For example, if a machine was used first as
+`root` and later as `michael`, configure both Codex roots:
+
+```json
+{
+  "version": 1,
+  "roots": {
+    "codex": ["/root/.codex", "/home/reviewer/.codex"],
+    "claude": ["/home/reviewer/.claude"],
+    "gemini": ["/home/reviewer/.gemini"],
+    "git": ["/home/reviewer/Projects"]
+  }
+}
+```
+
+The Setup screen owns the machine-local, Git-ignored `.chatreview/source-roots.json`
+file. It contains source paths only; it is not a database backup, a machine identity,
+or a place for credentials or chat data. When configuring without the UI, set the JSON
+array environment variables `CHATREVIEW_CODEX_ROOTS`, `CHATREVIEW_CLAUDE_ROOTS`,
+`CHATREVIEW_GEMINI_ROOTS`, and `CHATREVIEW_GIT_ROOTS`. JSON arrays preserve paths with
+spaces as a single entry. The singular `CHATREVIEW_CODEX_ROOT`,
+`CHATREVIEW_CLAUDE_ROOT`, `CHATREVIEW_GEMINI_ROOT`, and `CHATREVIEW_GIT_ROOT` variables
+remain compatible for older one-folder installations. CLI root flags can be repeated
+once per folder; quote any path containing spaces.
+
+The central Setup page cannot edit another writer's filesystem. Configure the paths
+while using Setup on the target machine, or edit that machine's local environment and
+run its writer sync there. Tailscale connectivity does not trigger a LAN scan, mount a
+remote home directory, or discover source folders automatically. If a configured folder
+is later removed, future syncs stop reading it, but records already archived from that
+folder are not deleted.
+
+Browser-side path changes are local-only by default. On a trusted Tailscale-only web
+deployment, an operator can deliberately allow them from another private client with
+`CHATREVIEW_ALLOW_REMOTE_SOURCE_SETUP=1`; this changes paths only for the computer
+running that web process, never for another writer.
+
 ## First-run checklist
 
 On the central computer:
@@ -73,7 +121,8 @@ On each additional computer:
 
 1. Clone the same release of this repository and run `uv sync`.
 2. Obtain a dedicated writer environment from the central operator.
-3. Set that computer's Codex, Claude, Gemini, and optional Git roots.
+3. Set that computer's Codex, Claude, Gemini, and optional Git root lists; add every
+   local folder that should be included, including older login/home paths if needed.
 4. Keep the generated machine ID stable for the life of that writer.
 5. Run the guided writer installer; it performs `db doctor`, inventory, the first
    resumable sync, and schedule installation in order.

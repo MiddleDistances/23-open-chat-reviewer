@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import inspect
 import json
+import os
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import date, datetime
@@ -8,10 +10,10 @@ from pathlib import Path
 from typing import Annotated, Any, Literal
 
 import psycopg
-from fastapi import FastAPI, HTTPException, Query, Response
+from fastapi import FastAPI, HTTPException, Query, Request, Response
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from chatreview import __version__
 from chatreview.config import Settings
@@ -69,6 +71,11 @@ from chatreview.setup_planner import (
     SetupPlan,
     SetupPlanner,
 )
+from chatreview.source_roots import (
+    SourceRootConfigurationError,
+    save_source_roots,
+    source_roots_from_flat_records,
+)
 from chatreview.summary_jobs import (
     SummaryAgentId,
     SummaryJobAlreadyRunning,
@@ -77,6 +84,14 @@ from chatreview.summary_jobs import (
     load_summary_agent,
     save_summary_agent,
     summary_agent_catalog,
+)
+from chatreview.summary_setup import (
+    SummaryConfigurationError,
+    current_configuration,
+    normalize_base_url,
+    probe_openai_compatible,
+    save_runtime_configuration,
+    setup_actions_enabled,
 )
 from chatreview.timesheets import (
     TimesheetFilters,
@@ -170,14 +185,114 @@ class SetupPreviewInput(BaseModel):
     embedding_preset: Literal["qwen3-embedding-0.6b"] = DEFAULT_EMBEDDING_PRESET
 
 
+class SourceRootInput(BaseModel):
+    """One provider folder selected for this machine."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    provider: Literal["codex", "claude", "gemini", "git"]
+    path: str = Field(min_length=1, max_length=4_096)
+
+
+class SourceRootConfigurationInput(BaseModel):
+    """Credential-free machine-local source folder configuration."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    roots: list[SourceRootInput] = Field(default_factory=list, max_length=64)
+
+
 class SummaryAgentInput(BaseModel):
     provider: SummaryAgentId
+
+
+class SummaryProviderConfigurationInput(BaseModel):
+    """Credential-free runtime configuration accepted by the setup UI/agent."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    provider: Literal["openai-compatible", "qwen", "local", "openai"] = "openai-compatible"
+    model: str = Field(min_length=1, max_length=512)
+    base_url: str = Field(min_length=1, max_length=2048)
+    disable_thinking: bool = False
+
+
+class SummaryProviderProbeInput(BaseModel):
+    """Endpoint probe input; browser probes never accept or persist API keys."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    base_url: str = Field(min_length=1, max_length=2048)
+    model: str | None = Field(default=None, max_length=512)
 
 
 class SummaryRunInput(SummaryAgentInput):
     days: int = Field(default=30, ge=1, le=365)
     limit: int = Field(default=40, ge=1, le=100)
     per_project_limit: int = Field(default=3, ge=1, le=10)
+
+
+def _summary_agent_catalog_for(data_dir: Path) -> list[dict[str, Any]]:
+    """Call catalog extensions with the runtime directory when supported.
+
+    The no-argument fallback keeps older integrations that monkeypatch or call
+    ``summary_agent_catalog`` directly compatible with the dynamic configuration.
+    """
+
+    try:
+        parameters = inspect.signature(summary_agent_catalog).parameters
+    except (TypeError, ValueError):
+        parameters = {}
+    if "data_dir" in parameters:
+        return summary_agent_catalog(data_dir)
+    return summary_agent_catalog()
+
+
+def _summary_setup_access(request: Request) -> tuple[bool, str]:
+    """Describe the local-only setup guard to the setup UI/agent."""
+
+    client_host = request.client.host if request.client is not None else None
+    enabled = setup_actions_enabled(client_host)
+    if enabled:
+        return True, "Summary setup actions are available from this connection"
+    return (
+        False,
+        "For safety, run summary setup on the ChatReviewer machine or explicitly "
+        "enable private remote setup with CHATREVIEW_ALLOW_REMOTE_SUMMARY_SETUP=1",
+    )
+
+
+def _source_setup_access(request: Request) -> tuple[bool, str]:
+    """Describe the local-only source-folder save guard."""
+
+    client_host = request.client.host if request.client is not None else None
+    enabled = setup_actions_enabled(
+        client_host,
+        remote_env="CHATREVIEW_ALLOW_REMOTE_SOURCE_SETUP",
+    )
+    if enabled:
+        return True, "Source-folder changes are available from this connection"
+    return (
+        False,
+        "Source folders belong to this computer. Open Setup on it, or explicitly "
+        "enable private remote changes with CHATREVIEW_ALLOW_REMOTE_SOURCE_SETUP=1",
+    )
+
+
+def _summary_probe_api_key(data_dir: Path, base_url: str) -> str | None:
+    """Return an existing server key only for its exact configured endpoint."""
+
+    configured_key = os.environ.get("CHATREVIEW_SUMMARY_API_KEY", "").strip()
+    if not configured_key:
+        return None
+    try:
+        configuration = current_configuration(data_dir)
+        requested_url = normalize_base_url(base_url)
+    except SummaryConfigurationError:
+        return None
+    if configuration is not None and configuration.base_url == requested_url:
+        return configured_key
+    return None
 
 
 def create_app(settings: Settings) -> FastAPI:
@@ -219,9 +334,36 @@ def create_app(settings: Settings) -> FastAPI:
                 "semantic_freshness": run["freshness"] if run else None,
             }
 
+    def public_setup_status(request: Request) -> dict[str, Any]:
+        result = setup.status().to_dict()
+        actions_enabled, actions_message = _source_setup_access(request)
+        result["source_actions_enabled"] = actions_enabled
+        result["source_actions_message"] = actions_message
+        result["source_runtime_file"] = "source-roots.json"
+        return result
+
     @app.get("/api/setup/status")
-    def setup_status() -> dict[str, Any]:
-        return setup.status().to_dict()
+    def setup_status(request: Request) -> dict[str, Any]:
+        return public_setup_status(request)
+
+    @app.put("/api/setup/sources")
+    def save_setup_sources(
+        request: Request,
+        payload: SourceRootConfigurationInput,
+    ) -> dict[str, Any]:
+        """Save provider folders only for the machine running this web process."""
+
+        actions_enabled, actions_message = _source_setup_access(request)
+        if not actions_enabled:
+            raise HTTPException(403, actions_message)
+        try:
+            roots = source_roots_from_flat_records(
+                [root.model_dump() for root in payload.roots]
+            )
+            save_source_roots(settings.data_dir, roots)
+        except SourceRootConfigurationError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        return public_setup_status(request)
 
     @app.get("/api/setup/machines")
     def setup_machines() -> dict[str, Any]:
@@ -328,10 +470,106 @@ def create_app(settings: Settings) -> FastAPI:
             }
         return {
             "selected": load_summary_agent(settings.data_dir),
-            "providers": summary_agent_catalog(),
+            "providers": _summary_agent_catalog_for(settings.data_dir),
             "run": run,
             "latest_run": latest,
         }
+
+    @app.get("/api/summary-agent/configuration")
+    def summary_agent_configuration(request: Request) -> dict[str, Any]:
+        """Expose non-secret summary configuration for setup assistants."""
+
+        actions_enabled, actions_message = _summary_setup_access(request)
+        try:
+            configuration = current_configuration(settings.data_dir)
+        except SummaryConfigurationError as exc:
+            return {
+                "configured": False,
+                "provider": None,
+                "model": None,
+                "base_url": None,
+                "disable_thinking": False,
+                "source": "runtime",
+                "updated_at": None,
+                "api_key_configured": bool(os.environ.get("CHATREVIEW_SUMMARY_API_KEY")),
+                "runtime_file": "summary-provider.json",
+                "error": str(exc),
+                "actions_enabled": actions_enabled,
+                "actions_message": actions_message,
+            }
+        if configuration is None:
+            return {
+                "configured": False,
+                "provider": None,
+                "model": None,
+                "base_url": None,
+                "disable_thinking": False,
+                "source": "none",
+                "updated_at": None,
+                "api_key_configured": bool(os.environ.get("CHATREVIEW_SUMMARY_API_KEY")),
+                "runtime_file": "summary-provider.json",
+                "error": None,
+                "actions_enabled": actions_enabled,
+                "actions_message": actions_message,
+            }
+        result = configuration.to_public_dict(
+            api_key_configured=bool(os.environ.get("CHATREVIEW_SUMMARY_API_KEY"))
+        )
+        result["error"] = None
+        result["actions_enabled"] = actions_enabled
+        result["actions_message"] = actions_message
+        return result
+
+    @app.post("/api/summary-agent/probe")
+    def probe_summary_agent(request: Request, payload: SummaryProviderProbeInput) -> dict[str, Any]:
+        """Probe one explicit endpoint without changing machine configuration."""
+
+        actions_enabled, actions_message = _summary_setup_access(request)
+        if not actions_enabled:
+            raise HTTPException(403, actions_message)
+        result = probe_openai_compatible(
+            payload.base_url,
+            model=payload.model,
+            api_key=_summary_probe_api_key(settings.data_dir, payload.base_url),
+        ).to_dict()
+        result["actions_enabled"] = True
+        result["actions_message"] = actions_message
+        return result
+
+    @app.put("/api/summary-agent/configuration")
+    def save_summary_agent_configuration(
+        request: Request,
+        payload: SummaryProviderConfigurationInput,
+    ) -> dict[str, Any]:
+        """Save only the summary endpoint settings in machine-local runtime state."""
+
+        actions_enabled, actions_message = _summary_setup_access(request)
+        if not actions_enabled:
+            raise HTTPException(403, actions_message)
+        probe = probe_openai_compatible(
+            payload.base_url,
+            model=payload.model,
+            api_key=_summary_probe_api_key(settings.data_dir, payload.base_url),
+        )
+        if not probe.ok:
+            raise HTTPException(422, f"Summary endpoint was not saved: {probe.message}")
+        try:
+            configuration = save_runtime_configuration(
+                settings.data_dir,
+                provider=payload.provider,
+                model=payload.model,
+                base_url=probe.base_url or payload.base_url,
+                disable_thinking=payload.disable_thinking,
+            )
+        except SummaryConfigurationError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        result = configuration.to_public_dict(
+            api_key_configured=bool(os.environ.get("CHATREVIEW_SUMMARY_API_KEY"))
+        )
+        result["error"] = None
+        result["actions_enabled"] = True
+        result["actions_message"] = actions_message
+        return result
 
     @app.put("/api/summary-agent")
     def select_summary_agent(payload: SummaryAgentInput) -> dict[str, Any]:

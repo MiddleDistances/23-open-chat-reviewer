@@ -19,6 +19,7 @@ from chatreview.db import DatabaseError, Row, Session, close_pools, database
 from chatreview.providers.base import ProviderAdapter, stable_hash
 from chatreview.registry import apply_contributor_rules, rebuild_registry
 from chatreview.retention import RawRetentionPolicy
+from chatreview.source_changes import source_changes
 from chatreview.source_selection import HistoryScope, SourceSelectionPreview, preview_source_selection
 from chatreview.types import ParsedRecord, SourceSpec, TextFragment
 
@@ -635,11 +636,14 @@ class Ingestor:
         )
 
     def _finalize(self, connection: Session) -> None:
-        self._reconcile_sessions(connection)
-        self._prune_orphan_contents(connection)
+        changes = source_changes(connection, "session_source_checkpoint_v1")
+        self._reconcile_sessions(connection, session_ids=changes.session_ids)
+        # Normal ingestion is append-only. Orphan pruning belongs to explicit rebuilds.
         connection.commit()
         rebuild_registry(connection)
         apply_contributor_rules(connection)
+        changes.record(connection)
+        connection.commit()
 
     def discover(
         self,
@@ -693,6 +697,10 @@ class Ingestor:
             self._register_machine_and_contributor(connection)
             # Human annotations use stable target keys and remain. Event and episode
             # tables are disposable projections and are rebuilt below.
+            connection.execute(
+                "DELETE FROM schema_meta WHERE key IN "
+                "('session_source_checkpoint_v1','episode_source_checkpoint_v1')"
+            )
             connection.execute("DELETE FROM timesheet_snapshots")
             # A row-wise DELETE is prohibitively expensive at archive scale because
             # canonical_event_id uses ON DELETE SET NULL and every dependent projection
@@ -702,9 +710,7 @@ class Ingestor:
             connection.execute("UPDATE semantic_runs SET status='stale', is_active=false")
             connection.execute("UPDATE sessions SET event_count=0, text_unit_count=0")
             connection.commit()
-            summary.discovered_files = int(
-                connection.execute("SELECT COUNT(*) FROM sources").fetchone()[0]
-            )
+            summary.discovered_files = int(connection.execute("SELECT COUNT(*) FROM sources").fetchone()[0])
             position = (0, 0, 0)
             while rows := connection.execute(
                 """
@@ -1751,7 +1757,11 @@ class Ingestor:
             ),
         )
 
-    def _reconcile_sessions(self, connection: Session) -> None:
+    def _reconcile_sessions(self, connection: Session, *, session_ids: list[int] | None = None) -> None:
+        if session_ids == []:
+            return
+        scope = "" if session_ids is None else " WHERE sessions.id=ANY(?)"
+        parameters = () if session_ids is None else (session_ids,)
         connection.execute(
             """
             UPDATE sessions SET
@@ -1773,13 +1783,19 @@ class Ingestor:
                 ),
                 updated_at=CURRENT_TIMESTAMP
             """
+            + scope,
+            parameters,
         )
         connection.execute(
-            "DELETE FROM sessions WHERE event_count=0 AND id NOT IN (SELECT session_id FROM session_sources)"
+            "DELETE FROM sessions WHERE event_count=0 AND id NOT IN "
+            "(SELECT session_id FROM session_sources)" + ("" if session_ids is None else " AND id=ANY(?)"),
+            parameters,
         )
         for provider, adapter in self.adapters.items():
             rows = connection.execute(
-                "SELECT id, project, cwd FROM sessions WHERE provider=?", (provider,)
+                "SELECT id, project, cwd FROM sessions WHERE provider=?"
+                + ("" if session_ids is None else " AND id=ANY(?)"),
+                (provider,) if session_ids is None else (provider, session_ids),
             ).fetchall()
             updates = []
             for row in rows:
@@ -1838,10 +1854,10 @@ def _configured_adapters(settings: Settings) -> list[ProviderAdapter]:
     from chatreview.providers import ClaudeAdapter, CodexAdapter, GeminiAdapter, GitAdapter
 
     return [
-        CodexAdapter(settings.codex_root),
-        ClaudeAdapter(settings.claude_root),
-        GeminiAdapter(settings.gemini_root),
-        GitAdapter(settings.git_root, settings.git_sources_dir),
+        CodexAdapter(settings.roots_for("codex")),
+        ClaudeAdapter(settings.roots_for("claude")),
+        GeminiAdapter(settings.roots_for("gemini")),
+        GitAdapter(settings.roots_for("git"), settings.git_sources_dir),
     ]
 
 
