@@ -64,6 +64,11 @@ Lexical search uses PostgreSQL full-text indexes and is always available. Semant
 is an installable extra that writes versioned embedding runs. Hybrid search fuses the
 candidate lists; semantic absence never changes raw or lexical results.
 
+`recall.py` assembles compact evidence cards at retrieval time and reads bounded
+original-event neighborhoods. It preserves full-text CLI/UI search and stored
+evidence. The stdio MCP adds compact discovery/context tools alongside its existing
+tools. See [compact recall contracts and evaluation](COMPACT_RECALL.md).
+
 ### Summaries
 
 `summary_providers.py` defines the narrow provider protocol. `resume.py` prepares bounded

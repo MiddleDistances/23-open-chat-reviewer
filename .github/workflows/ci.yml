@@ -47,7 +47,7 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           enable-cache: true
-      - run: uv sync --frozen
+      - run: uv sync --frozen --extra mcp
       - run: uv run ruff check src tests
       - run: uv run pytest -q
 
