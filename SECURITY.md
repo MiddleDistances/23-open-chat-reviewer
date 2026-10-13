@@ -7,8 +7,7 @@ Until the first stable release, security fixes are applied to the latest `main` 
 ## Reporting a vulnerability
 
 Do not file a public issue containing a vulnerability, credential, or chat excerpt. Use
-GitHub's private vulnerability reporting for the published repository, or contact the
-maintainer through the private address listed in the repository's GitHub security tab.
+[GitHub's private vulnerability reporting](https://github.com/MiddleDistances/23-open-chat-reviewer/security/advisories/new).
 
 Include affected versions, impact, reproduction steps using synthetic data, and any
 suggested mitigation. Remove secrets and personal archive content.

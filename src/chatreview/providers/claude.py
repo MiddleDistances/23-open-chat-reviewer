@@ -14,7 +14,47 @@ from chatreview.providers.base import (
     normalize_adapter_roots,
     source_kind,
 )
-from chatreview.types import Artifact, ParsedRecord, SourceSpec, TextFragment
+from chatreview.types import Artifact, ParsedRecord, SourceSpec, TextFragment, TokenUsage
+
+TOKEN_USAGE_VERSION = 2
+
+
+def extract_token_usage(data: dict[str, Any]) -> TokenUsage | None:
+    """Read Claude message usage, rejecting malformed counts instead of inventing zeros.
+
+    Older Claude records provide only the aggregate cache-write count. Its unlabelled
+    remainder uses the provider's default five-minute TTL, as in the original panel.
+    """
+    message = data.get("message")
+    if not isinstance(message, dict) or message.get("role", data.get("type")) != "assistant":
+        return None
+    usage = message.get("usage")
+    if not isinstance(usage, dict):
+        return None
+    model = message.get("model")
+    if not isinstance(model, str) or not model.strip() or "\x00" in model:
+        return None
+    cache = usage.get("cache_creation")
+    if cache is None:
+        cache = {}
+    if not isinstance(cache, dict):
+        return None
+    values = [usage.get("input_tokens"), usage.get("output_tokens"),
+              cache.get("ephemeral_5m_input_tokens", 0), cache.get("ephemeral_1h_input_tokens", 0),
+              usage.get("cache_read_input_tokens", 0)]
+    if any(type(value) is not int or not 0 <= value <= 2**63 - 1 for value in values):
+        return None
+    inp, out, five, hour, read = values
+    total = usage.get("cache_creation_input_tokens", five + hour)
+    if type(total) is not int or not five + hour <= total <= 2**63 - 1:
+        return None
+    tier = usage.get("service_tier")
+    if tier is not None and (not isinstance(tier, str) or "\x00" in tier):
+        return None
+    message_id = message.get("id")
+    if not isinstance(message_id, str) or not message_id.strip() or "\x00" in message_id:
+        message_id = None
+    return TokenUsage(model.strip(), tier, inp, out, total - hour, hour, read, message_id)
 
 
 class ClaudeAdapter(ProviderAdapter):
@@ -112,6 +152,7 @@ class ClaudeAdapter(ProviderAdapter):
             metadata=metadata,
             fragments=fragments,
             artifacts=artifacts,
+            token_usage=extract_token_usage(data),
         )
 
     def normalize_project(self, value: str | None) -> str | None:

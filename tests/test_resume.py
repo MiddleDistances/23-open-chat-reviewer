@@ -179,6 +179,8 @@ def test_resume_refresh_persists_grounded_surfaces_and_reuses_unchanged(corpus) 
     assert response.status_code == 200
     assert response.json()["total"] == 2
     assert response.json()["latest_run"]["model_name"] == "test/qwen-27b"
+    assert response.json()["latest_source_activity_at"] is not None
+    assert "model-authored" in response.json()["method_note"]
     assert "prompt_hash" not in response.json()["surfaces"][0]
     assert "evidence_fingerprint" not in response.json()["surfaces"][0]
     assert "machine_id" not in response.json()["surfaces"][0]["locations"][0]

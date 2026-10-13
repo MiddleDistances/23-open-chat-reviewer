@@ -77,6 +77,13 @@ Project aliases normalize machine-specific paths. Workload snapshots derive acti
 intervals from chat evidence, attribute them to contributors/projects, union overlap, and
 split results using a configured IANA timezone. Activity categories are optional metadata.
 
+### Token-cost estimates
+
+Claude adapters expose typed token usage, persisted independently of pricing. An explicit
+operator price-book import enables deterministic cost snapshots through the worker/CLI.
+API reads remain transactionally read-only and the native React page displays pricing
+provenance, coverage, unpriced usage and freshness. See [token-cost operations](TOKEN_COSTS.md).
+
 ### Runtime
 
 The CLI and API are thin adapters over the same modules. `worker.py` sequences sync,

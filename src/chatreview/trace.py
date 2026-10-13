@@ -411,7 +411,7 @@ def _normalize_exec_wrapper(value: str) -> tuple[str, str]:
     methods = re.findall(r"\btools\.([A-Za-z0-9_]+)\s*\(", value)
     unique_methods = list(dict.fromkeys(methods))
     if unique_methods == ["exec_command"]:
-        command_match = re.search(r"\bcmd\s*:\s*(\"(?:\\.|[^\"])*\")", value, re.S)
+        command_match = re.search(r"\bcmd\s*:\s*(\"(?:\\.|[^\"\\])*\")", value, re.S)
         if command_match:
             try:
                 return _normalize_shell(json.loads(command_match.group(1)))

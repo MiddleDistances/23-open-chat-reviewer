@@ -47,6 +47,7 @@ export interface ResumeSurfaceResponse {
     started_at: string;
     completed_at: string | null;
   } | null;
+  latest_source_activity_at: string | null;
   method_note: string;
 }
 

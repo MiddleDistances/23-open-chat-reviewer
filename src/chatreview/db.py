@@ -29,7 +29,15 @@ LEGACY_MIGRATION_CHECKSUMS = {
             # open-source read/query surface needs without rewriting that history.
             "f7abb72c1878dc702ce80f2febef40cf897cbff08bb938f0b5e8e8c76575e740"
         }
-    )
+    ),
+    (
+        15,
+        "0015_resume_human_summary.sql",
+    ): frozenset({"e47f76844b3eb261f42f5a89c0d038776caad8ee231e449c68b5aab7f7f93f2d"}),
+    (
+        16,
+        "0016_semantic_incremental_state.sql",
+    ): frozenset({"872530752bd21d757169d25daab04f5d846bcbd334bed9372366c78884db38e6"}),
 }
 SEARCH_INDEXES = {
     "sources_path_trgm_idx": (
@@ -373,6 +381,22 @@ def _legacy_migration_is_compatible(
     accepted = LEGACY_MIGRATION_CHECKSUMS.get((version, name), frozenset())
     if checksum not in accepted:
         return False
+    if version == 15:
+        return bool(
+            connection.execute(
+                """SELECT EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_schema = current_schema()
+                      AND table_name = 'resume_surfaces'
+                      AND column_name = 'human_summary'
+                )"""
+            ).fetchone()["exists"]
+        )
+    if version == 16:
+        relation = connection.execute(
+            "SELECT to_regclass('semantic_session_state') AS relation"
+        ).fetchone()
+        return relation is not None and relation["relation"] is not None
     signature = connection.execute(
         """
         SELECT to_regclass('machines') IS NOT NULL AS machines,
@@ -434,6 +458,29 @@ def doctor(database_url: str) -> DoctorReport:
             ).fetchone()
             migration_count = int(migrations["count"])
             latest = migrations["latest"]
+            applied = {
+                row["version"]: row
+                for row in connection.execute(
+                    "SELECT version, name, checksum FROM chatreview_schema_migrations"
+                )
+            }
+            for path in sorted(MIGRATIONS_DIR.glob("[0-9][0-9][0-9][0-9]_*.sql")):
+                version = int(path.name.split("_", 1)[0])
+                row = applied.get(version)
+                if row is None:
+                    continue
+                checksum = hashlib.sha256(path.read_bytes()).hexdigest()
+                if (row["name"], row["checksum"]) == (path.name, checksum):
+                    continue
+                if not _legacy_migration_is_compatible(
+                    connection,
+                    version=version,
+                    name=row["name"],
+                    checksum=row["checksum"],
+                ):
+                    raise DatabaseError(
+                        f"migration {version} differs from the already-applied migration"
+                    )
     assert server is not None
     return DoctorReport(
         server_version=server["server_version"],

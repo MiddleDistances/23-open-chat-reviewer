@@ -4,7 +4,6 @@ import csv
 import hashlib
 import io
 import json
-import os
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, time, timedelta
@@ -14,6 +13,7 @@ from zoneinfo import ZoneInfo
 from chatreview.db import Session
 from chatreview.providers.base import stable_hash
 from chatreview.semantic import corpus_revision
+from chatreview.timezones import local_zone as _local_zone
 
 ALGORITHM_VERSION = 3
 INACTIVITY_GAP = timedelta(hours=1)
@@ -1360,13 +1360,6 @@ def _utc(value: datetime) -> datetime:
         return value.replace(tzinfo=UTC)
     return value.astimezone(UTC)
 
-
-def _local_zone(value: str | None = None) -> ZoneInfo:
-    name = (value or os.environ.get("CHATREVIEW_TIMEZONE") or os.environ.get("TZ") or "UTC").strip()
-    try:
-        return ZoneInfo(name)
-    except Exception as exc:
-        raise ValueError(f"unknown CHATREVIEW_TIMEZONE: {name}") from exc
 
 
 def financial_year_dates(value: str) -> tuple[date, date]:

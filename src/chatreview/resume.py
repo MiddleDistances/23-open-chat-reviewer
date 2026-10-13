@@ -741,14 +741,18 @@ def list_resume_surfaces(connection: Session, *, limit: int = 200) -> dict[str, 
         FROM resume_surface_runs ORDER BY started_at DESC, id DESC LIMIT 1
         """
     ).fetchone()
+    latest_source_activity = connection.execute(
+        "SELECT MAX(COALESCE(ended_at, started_at)) AS active_at FROM sessions"
+    ).fetchone()
     return {
         "surfaces": surfaces,
         "total": total,
         "states": {str(row["current_state"]): int(row["count"]) for row in counts},
         "latest_run": {key: run[key] for key in run.keys()} if run else None,
+        "latest_source_activity_at": latest_source_activity["active_at"],
         "method_note": (
             "Machine, repository, path, provider, and timestamps come directly from the archive. "
-            "Concepts, goals, summaries, states, and next moves are Qwen-derived and should be "
+            "Concepts, goals, summaries, states, and next moves are model-authored and should be "
             "checked against the linked conversation trace before consequential action."
         ),
     }

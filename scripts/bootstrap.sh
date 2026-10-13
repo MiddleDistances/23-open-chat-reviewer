@@ -19,6 +19,18 @@ command -v docker >/dev/null 2>&1 || {
     exit 78
 }
 
+# The default Compose project name is stable for updates. Refuse to take over a
+# database container owned by another checkout on this host.
+existing_db="$(docker compose ps -a -q db 2>/dev/null || true)"
+if [[ -n "$existing_db" ]]; then
+    owner="$(docker inspect -f '{{ index .Config.Labels "com.docker.compose.project.working_dir" }}' "$existing_db")"
+    if [[ -n "$owner" && "$owner" != "$REPO_ROOT" ]]; then
+        printf 'The database container belongs to another checkout: %s\n' "$owner" >&2
+        printf 'Use that checkout for updates; separate installs need distinct Compose project and database port.\n' >&2
+        exit 78
+    fi
+fi
+
 uv sync
 if [[ ! -f .chatreview/archive.env ]]; then
     .venv/bin/open-chat-reviewer init --network "${CHATREVIEW_INIT_NETWORK:-auto}"

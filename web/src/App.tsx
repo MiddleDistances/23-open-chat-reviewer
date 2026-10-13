@@ -3,6 +3,7 @@ import {
   Boxes,
   CalendarClock,
   CircleGauge,
+  Coins,
   Database,
   FileCode2,
   FolderKanban,
@@ -31,6 +32,7 @@ const SetupPage = lazy(() => import("./pages/SetupRoute"));
 const SessionsPage = lazy(() => import("./pages/SessionsPage"));
 const TracePage = lazy(() => import("./pages/TracePage"));
 const WorkArchivePage = lazy(() => import("./pages/WorkArchivePage"));
+const TokenCostPage = lazy(() => import("./pages/TokenCostPage"));
 const MapPage = lazy(() => import("./pages/MapPage"));
 
 const navigation = [
@@ -57,6 +59,7 @@ const navigation = [
     items: [
       { to: "/projects", label: "Projects & categories", icon: FolderKanban, basic: false },
       { to: "/work-trail", label: "Work trail", icon: GitCompareArrows, basic: false },
+      { to: "/token-cost", label: "Token costs", icon: Coins, basic: true },
       { to: "/timesheets", label: "Workload", icon: CalendarClock, basic: true },
       { to: "/archive-status", label: "Archive status", icon: Archive, basic: false },
     ],
@@ -151,6 +154,7 @@ export default function App() {
             <Route path="/review" element={<ReviewPage />} />
             <Route path="/projects" element={<WorkArchivePage />} />
             <Route path="/work-trail" element={<WorkArchivePage />} />
+            <Route path="/token-cost" element={<TokenCostPage />} />
             <Route path="/timesheets" element={<WorkArchivePage />} />
             <Route path="/archive-status" element={<WorkArchivePage />} />
           </Routes>

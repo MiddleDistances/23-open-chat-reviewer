@@ -33,6 +33,7 @@ from contextlib import suppress
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 from typing import Any, Literal, Protocol, TextIO, cast
 
 from chatreview.embedding_models import (
@@ -691,11 +692,23 @@ class SetupBuildManager:
     def _write_state(self, state: Mapping[str, Any]) -> None:
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.state_path.parent.mkdir(parents=True, exist_ok=True)
-        temporary = self.state_path.with_name(f".{self.state_path.name}.{os.getpid()}.tmp")
         encoded = json.dumps(state, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
-        temporary.write_text(encoded, encoding="utf-8")
-        os.chmod(temporary, 0o600)
-        os.replace(temporary, self.state_path)
+        with NamedTemporaryFile(
+            "w",
+            encoding="utf-8",
+            dir=self.state_path.parent,
+            prefix=f".{self.state_path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            handle.write(encoded)
+            temporary = Path(handle.name)
+        try:
+            os.chmod(temporary, 0o600)
+            os.replace(temporary, self.state_path)
+        finally:
+            with suppress(OSError):
+                temporary.unlink()
 
     def _append_log(self, context: _JobContext, message: str) -> None:
         context.log_path.parent.mkdir(parents=True, exist_ok=True)

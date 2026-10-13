@@ -4,6 +4,7 @@
 
 ![Status: alpha](https://img.shields.io/badge/status-alpha-orange)
 ![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)
+[![CI](https://github.com/MiddleDistances/23-open-chat-reviewer/actions/workflows/ci.yml/badge.svg)](https://github.com/MiddleDistances/23-open-chat-reviewer/actions/workflows/ci.yml)
 
 ## Why I made this
 
@@ -50,7 +51,7 @@ it arbitrary SQL, filesystem access, or permission to rewrite the evidence.
 
 ## How it works
 
-![Several computers sync their AI chats and Git metadata over Tailscale to one central archive, which serves the web app, workload calendar, summaries, and a planned MCP.](docs/images/how-it-works.svg)
+![Several computers sync their AI chats and Git metadata over Tailscale to one central archive, which serves the web app, workload calendar, summaries, and a read-only MCP.](docs/images/how-it-works.svg)
 
 Each computer reads its own chat and Git sources without modifying them. A small sync
 helper sends that evidence over a private Tailscale network to one PostgreSQL archive. The web
@@ -69,6 +70,12 @@ git clone https://github.com/MiddleDistances/23-open-chat-reviewer.git
 cd 23-open-chat-reviewer
 scripts/install.sh
 ```
+
+For the easiest correct install, **just get Astra to do it.** Open this repository
+with Astra and ask: "Install Open Chat Reviewer using the README, fix any setup
+errors, and verify that the Setup page opens on my computer." If a manual install
+does not work, give Astra the error message. Keep `.chatreview/`, database URLs,
+tokens, and raw chats out of public issues and chat messages you do not control.
 
 Open the URL printed by `bootstrap.sh`. The setup screen starts with these familiar
 locations as suggestions/fallbacks:
@@ -193,8 +200,14 @@ cd web && bun install --frozen-lockfile && bun run test && bun run build
 ```
 
 The project is alpha software. Contributions and plain-language setup feedback are very
-welcome; see [CONTRIBUTING.md](CONTRIBUTING.md).
+welcome. Start with the [contribution guide](CONTRIBUTING.md), browse
+[`good first issue`](https://github.com/MiddleDistances/23-open-chat-reviewer/labels/good%20first%20issue),
+or ask a question in [Discussions](https://github.com/MiddleDistances/23-open-chat-reviewer/discussions).
+Project decision-making is documented in [GOVERNANCE.md](GOVERNANCE.md), and support
+routes are listed in [SUPPORT.md](SUPPORT.md).
 
 ## License
 
 Apache License 2.0. See [LICENSE](LICENSE).
+
+Optional [token-cost estimates](docs/TOKEN_COSTS.md) use operator-supplied, versioned pricing and a native archive page.

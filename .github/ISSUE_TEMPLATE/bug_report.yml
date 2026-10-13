@@ -1,0 +1,76 @@
+name: Bug report
+description: Report a reproducible problem using sanitized, synthetic evidence.
+title: "bug: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a problem. Open Chat Reviewer handles private archives.
+        Do not include credentials, database URLs, raw conversations, personal paths,
+        or unredacted logs. Use synthetic replacements.
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Preflight
+      options:
+        - label: I searched existing issues and pull requests for this problem.
+          required: true
+        - label: I removed private chat content, credentials, and identifying paths.
+          required: true
+        - label: This is not a security vulnerability.
+          required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What happened, and what were you trying to do?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction
+      description: Give the smallest reproducible sequence using synthetic data.
+      placeholder: |
+        1. Run ...
+        2. Configure ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      placeholder: v0.1.0 or git rev-parse --short HEAD
+    validations:
+      required: true
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: Deployment
+      options:
+        - One computer
+        - Multiple computers over Tailscale
+        - Development checkout
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, Python, Bun, PostgreSQL, browser, and provider versions that matter.
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Sanitized diagnostics
+      description: Paste only the minimal redacted output needed to understand the failure.
+      render: shell

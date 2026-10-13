@@ -19,6 +19,7 @@ from chatreview.resume import ProviderResumeModel, ResumeSurfaceRefresher
 from chatreview.summary_jobs import selected_provider_kind
 from chatreview.summary_providers import provider_from_environment
 from chatreview.timesheets import build_timesheet
+from chatreview.token_costs import build_token_costs
 
 WORKER_LOCK = "open-chat-reviewer:worker-cycle"
 
@@ -33,6 +34,7 @@ class WorkerCycleResult:
     episodes: dict[str, Any]
     timesheet: dict[str, Any] | None
     summaries: dict[str, Any] | None
+    token_costs: dict[str, Any] | None = None
 
 
 def run_cycle(
@@ -60,6 +62,10 @@ def run_cycle(
         if not acquired:
             report("another worker cycle is already active; skipping")
             return None
+        # Session-level advisory locks survive commit. End the transaction opened
+        # by pg_try_advisory_lock before the long sync/derivation pass; otherwise
+        # PostgreSQL can close this idle-in-transaction connection mid-cycle.
+        lock_connection.commit()
         sync = sync_sources(
             settings,
             providers=providers,
@@ -74,6 +80,10 @@ def run_cycle(
         if status["refresh"]["needs_timesheet"]:
             with database(settings.database_url) as connection:
                 timesheet_summary = build_timesheet(connection, cutoff=datetime.now(UTC))
+
+        token_cost_summary = None
+        if status["refresh"]["needs_token_costs"]:
+            token_cost_summary = build_token_costs(settings.database_url)
 
         if summaries is None:
             summaries = _env_bool("CHATREVIEW_ENABLE_SUMMARIES", default=False)
@@ -98,13 +108,14 @@ def run_cycle(
         episodes=asdict(episode_summary),
         timesheet=asdict(timesheet_summary) if timesheet_summary else None,
         summaries=asdict(resume_summary) if resume_summary else None,
+        token_costs=token_cost_summary,
     )
 
 
 def run_forever(
     settings: Settings,
     *,
-    interval_seconds: int = 21_600,
+    interval_seconds: int = 900,
     providers: set[str] | None = None,
     sync_workers: int = 1,
     summaries: bool | None = None,

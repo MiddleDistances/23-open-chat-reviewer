@@ -41,11 +41,23 @@ export default function DashboardPage() {
   const [filter, setFilter] = useState<ResumeFilter>("open");
   const { data, loading, error } = useApi<ResumeSurfaceResponse>("/api/resume-surfaces?limit=200");
   const needsArchiveFallback = Boolean(data && data.surfaces.length === 0);
+  const newestSummarizedActivity = data?.surfaces.reduce<string | null>(
+    (latest, surface) => (!latest || surface.last_activity_at > latest ? surface.last_activity_at : latest),
+    null,
+  ) ?? null;
+  const newestSummary = data?.surfaces.reduce<string | null>(
+    (latest, surface) => (!latest || surface.generated_at > latest ? surface.generated_at : latest),
+    null,
+  ) ?? null;
+  const archiveIsNewer = Boolean(
+    data?.latest_source_activity_at && newestSummarizedActivity &&
+    Date.parse(data.latest_source_activity_at) > Date.parse(newestSummarizedActivity),
+  );
   const {
     data: recentSessions,
     loading: sessionsLoading,
     error: sessionsError,
-  } = useApi<Session[]>(needsArchiveFallback ? "/api/sessions?limit=20" : null);
+  } = useApi<Session[]>(needsArchiveFallback || archiveIsNewer ? "/api/sessions?limit=20" : null);
 
   if (loading) return <Loading label="Recovering recent work threads" />;
   if (error) return <ErrorNotice message={error} />;
@@ -62,6 +74,18 @@ export default function DashboardPage() {
 
   const visible = data.surfaces.filter((surface) => matchesFilter(surface, filter));
   const openCount = data.surfaces.filter((surface) => surface.current_state !== "done").length;
+  const newerSessions = (recentSessions ?? []).filter((session) => {
+    const activeAt = session.ended_at ?? session.started_at;
+    return activeAt && newestSummarizedActivity && Date.parse(activeAt) > Date.parse(newestSummarizedActivity);
+  });
+  const seenProjects = new Set<string>();
+  const recentProjects = newerSessions.filter((session) => {
+    const project = session.project ?? session.external_id;
+    if (seenProjects.has(project)) return false;
+    seenProjects.add(project);
+    return true;
+  }).slice(0, 5);
+  const refreshFailed = data.latest_run?.status === "failed" || data.latest_run?.status === "partial";
 
   return (
     <div className="resume-dashboard">
@@ -74,16 +98,43 @@ export default function DashboardPage() {
             current position, and next consequential move.
           </p>
         </div>
-        <div className="resume-overview" aria-label={`${openCount} open work threads`}>
+        <div className="resume-overview" aria-label={`${openCount} saved open work threads`}>
           <strong>{openCount}</strong>
-          <span>open threads</span>
+          <span>saved open threads</span>
           <small>
-            {data.latest_run
-              ? `Refreshed ${formatRecency(data.latest_run.completed_at ?? data.latest_run.started_at)}`
-              : "No summary batch recorded"}
+            {newestSummary ? `Latest summary saved ${formatRecency(newestSummary)}` : "No summary saved"}
           </small>
         </div>
       </header>
+
+      {(archiveIsNewer || refreshFailed) && (
+        <aside className="resume-freshness-note" role="status">
+          <strong>{archiveIsNewer ? "Newer archive activity" : "Summary refresh needs attention"}</strong>
+          {archiveIsNewer && (
+            <p>
+              Archived conversations reach {formatDate(data.latest_source_activity_at, true)}, while
+              these saved summaries stop at {formatDate(newestSummarizedActivity, true)}. Their states
+              and next moves may have changed.
+            </p>
+          )}
+          {refreshFailed && <p>The latest summary refresh failed. Saved summaries remain available.</p>}
+          {sessionsLoading && archiveIsNewer && <p>Loading newer conversations…</p>}
+          {sessionsError && archiveIsNewer && <ErrorNotice message={sessionsError} />}
+          {recentProjects.length > 0 && (
+            <ul>
+              {recentProjects.map((session) => (
+                <li key={session.id}>
+                  <Link to={`/trace/${session.id}`}>
+                    {session.title || projectName(session.project)} · {session.provider} ·
+                    {" "}{formatRecency(session.ended_at ?? session.started_at)}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+          {archiveIsNewer && <Link to="/sessions">Browse all archived conversations</Link>}
+        </aside>
+      )}
 
       <aside className="resume-method-note">
         <Sparkles size={17} aria-hidden="true" />
@@ -201,7 +252,10 @@ function ResumeCard({ surface }: { surface: ResumeSurface }) {
         <span className={`resume-state resume-state-${surface.current_state}`}>
           {stateLabel(surface.current_state)}
         </span>
-        <span className="resume-recency"><Clock3 size={14} />{formatRecency(surface.last_activity_at)}</span>
+        <span className="resume-recency"><Clock3 size={14} />Activity {formatRecency(surface.last_activity_at)}</span>
+        <span className="resume-recency" title={formatDate(surface.generated_at, true)}>
+          Summary saved {formatRecency(surface.generated_at)}
+        </span>
         <span className="resume-providers"><Bot size={14} />{surface.providers.join(" + ")}</span>
       </div>
 
