@@ -96,3 +96,24 @@ def test_checkpoint_preserves_changes_arriving_after_capture(corpus):
         captured.record(connection)
         connection.commit()
         assert source_changes(connection, "test_source_checkpoint").session_ids
+
+
+def test_broad_source_change_uses_full_episode_reconciliation(corpus, monkeypatch):
+    """Shared histories must not expand into an archive-wide event self-join."""
+    import chatreview.source_changes as checkpoints
+
+    settings, _, _ = corpus
+    Ingestor(settings, [CodexAdapter(settings.codex_root), ClaudeAdapter(settings.claude_root)]).run()
+    EpisodeBuilder(settings).run()
+    # Exercise the broad-change policy with the small synthetic corpus.
+    monkeypatch.setattr(checkpoints, "MAX_INCREMENTAL_SESSION_SCOPE", 1, raising=False)
+    with database(settings.database_url) as connection:
+        connection.execute("UPDATE source_revisions SET updated_at=clock_timestamp()")
+        connection.commit()
+        changes = checkpoints.source_changes(
+            connection, "episode_source_checkpoint_v1", canonical_dependencies=True
+        )
+        assert changes.session_ids is None
+    # A full fingerprint pass still reuses unchanged episode evidence.
+    result = EpisodeBuilder(settings).run()
+    assert result.rebuilt_sessions == 0
