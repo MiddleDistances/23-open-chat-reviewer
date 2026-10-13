@@ -832,6 +832,7 @@ dependencies = [
     { name = "pgvector" },
     { name = "psycopg", extra = ["binary", "pool"] },
     { name = "pydantic" },
+    { name = "python-dotenv" },
     { name = "typer" },
     { name = "uvicorn", extra = ["standard"] },
 ]
@@ -879,6 +880,7 @@ requires-dist = [
     { name = "pydantic", specifier = ">=2.11" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.4" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=6.2" },
+    { name = "python-dotenv", specifier = ">=1.0" },
     { name = "sentence-transformers", marker = "extra == 'semantic'", specifier = ">=5.0" },
     { name = "typer", specifier = ">=0.16" },
     { name = "umap-learn", marker = "extra == 'semantic'", specifier = ">=0.5.9" },

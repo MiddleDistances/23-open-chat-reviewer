@@ -165,7 +165,7 @@ def test_snapshot_reconciles_to_repository_scoped_raw_evidence(corpus) -> None:
 
         archived = connection.execute(
             """
-            SELECT raw.payload_hash, payload.payload FROM work_interval_evidence evidence
+            SELECT raw.payload_hash, payload.payload FROM effective_work_interval_evidence evidence
             JOIN events event ON event.id=evidence.event_id
             JOIN raw_records raw ON raw.id=event.raw_record_id
             JOIN raw_payloads payload ON payload.payload_hash=raw.payload_hash
