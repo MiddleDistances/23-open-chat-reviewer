@@ -8,6 +8,10 @@ from dataclasses import dataclass
 from chatreview.db import Session
 from chatreview.providers.base import stable_hash
 
+# Shared history sources can attach to thousands of sessions. At that scale,
+# the existing full fingerprint pass is cheaper than expanding event identities.
+MAX_INCREMENTAL_SESSION_SCOPE = 200
+
 
 @dataclass(frozen=True)
 class SourceChanges:
@@ -62,6 +66,8 @@ def source_changes(
                 (changed,),
             ).fetchall()
         ]
+    if canonical_dependencies and len(ids) > MAX_INCREMENTAL_SESSION_SCOPE:
+        return SourceChanges(key, snapshot, None)
     if canonical_dependencies and ids:
         # A copied provider prefix can change canonical ownership in another
         # source. Include its sessions using the provider-identity index.
