@@ -1,6 +1,8 @@
 ---
 name: chatreview-recall
 description: Recall prior conversations, decisions, commands and execution evidence from the ChatReviewer archive when resuming work or checking what happened before.
+metadata:
+  guidance-version: "2026-10-14"
 ---
 
 Use the `chatreview-recall` MCP server's `find_prior_work` and `read_prior_work`
@@ -30,8 +32,15 @@ receipt. Keep `get_recent_work` summaries separate from archive-derived facts.
 State source dates and unresolved gaps. Verify the current owning code or runtime
 before claiming historical deployment or service state is still current.
 
-The server uses stdio and the configured machine-local environment. If the tools
-are absent, check the registered launcher and its environment file, then reconnect
-the MCP client after configuration changes. Compact recall needs the project's
-`mcp` dependency extra and no database migration or HTTP endpoint. Do not copy
-credentials from another machine or alter its archive identity to enable recall.
+The public server uses stdio and the configured machine-local environment.
+Its web port is not an MCP endpoint: an old `/mcp` URL returning HTTP 405 is a
+transport mismatch, not a reason to bypass the tools or change database access.
+Check the actual client/host registration before declaring recall unavailable.
+If these tools are already exposed, try a bounded call first; a different
+checkout lacking the optional MCP package does not invalidate the running server.
+
+For missing tools, transport errors or local installation, read
+[setup and diagnosis](references/setup.md). Check user and trusted-project MCP
+configuration, disabled servers and tool allow/deny lists. Distinguish discovery,
+successful reads and a merely installed skill. Reconnect the client after changes.
+Do not copy credentials from another machine or alter its archive identity.
