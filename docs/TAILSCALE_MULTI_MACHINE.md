@@ -271,7 +271,7 @@ Do not run `init` or database migrations on the Mac writer.
 
 ```bash
 git pull --ff-only &&
-uv sync --locked &&
+uv sync --locked --inexact &&
 scripts/chatreview-sync.sh --no-git \
   --opencode-root "${XDG_DATA_HOME:-$HOME/.local/share}/opencode"
 ```
@@ -280,6 +280,7 @@ This syncs Codex, Claude, Gemini and OpenCode into the configured central archiv
 The explicit OpenCode root also works when an older `source-roots.json` does not
 list the new provider. It applies to this invocation only. For future scheduled
 runs, add the OpenCode folder in the Mac's source-root configuration as well.
+The dependency update retains installed optional packages, such as MCP support.
 The sync is resumable and skips unchanged evidence. `--no-git` limits this pass
 to conversation history. A dirty checkout must be reviewed before updating;
 never discard local changes to make the pull succeed.
