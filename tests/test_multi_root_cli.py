@@ -21,6 +21,8 @@ ROOT_ENV_KEYS = (
     "CHATREVIEW_CLAUDE_ROOTS",
     "CHATREVIEW_GEMINI_ROOT",
     "CHATREVIEW_GEMINI_ROOTS",
+    "CHATREVIEW_OPENCODE_ROOT",
+    "CHATREVIEW_OPENCODE_ROOTS",
     "CHATREVIEW_GIT_ROOT",
     "CHATREVIEW_GIT_ROOTS",
 )
@@ -41,7 +43,7 @@ def _prepare_environment(monkeypatch: pytest.MonkeyPatch, home: Path) -> None:
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.setenv("CHATREVIEW_DATABASE_URL", "postgresql:///chatreview-cli-test")
     monkeypatch.setenv("CHATREVIEW_MACHINE_ID", str(MACHINE_ID))
-    for provider in ("codex", "claude", "gemini", "git"):
+    for provider in ("codex", "claude", "gemini", "opencode", "git"):
         monkeypatch.setenv(f"CHATREVIEW_{provider.upper()}_ROOTS", "[]")
 
 
@@ -130,7 +132,7 @@ def test_sources_check_fails_for_empty_or_disabled_roots(
     result = CliRunner().invoke(app, args)
 
     assert result.exit_code == 1, result.output
-    assert "No Codex, Claude, Gemini, or Git sources found" in result.output
+    assert "No Codex, Claude, Gemini, OpenCode, or Git sources found" in result.output
     if disabled:
         assert "no folders are configured" in result.output
     else:
@@ -178,7 +180,7 @@ def test_init_emits_plural_json_root_variables_without_legacy_singular_keys(
 
     assert result.exit_code == 0, result.output
     content = output.read_text(encoding="utf-8")
-    for provider in ("CODEX", "CLAUDE", "GEMINI", "GIT"):
+    for provider in ("CODEX", "CLAUDE", "GEMINI", "OPENCODE", "GIT"):
         plural_key = f"CHATREVIEW_{provider}_ROOTS"
         singular_key = f"CHATREVIEW_{provider}_ROOT"
         assert f"{plural_key}=" in content

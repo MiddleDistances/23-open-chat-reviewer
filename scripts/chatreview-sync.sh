@@ -9,8 +9,8 @@ set -Eeuo pipefail
 umask 027
 
 SCRIPT_PATH="${BASH_SOURCE[0]}"
-if command -v readlink >/dev/null 2>&1; then
-    SCRIPT_PATH="$(readlink -f -- "$SCRIPT_PATH")"
+if resolved_script="$(readlink -f -- "$SCRIPT_PATH" 2>/dev/null)"; then
+    SCRIPT_PATH="$resolved_script"
 fi
 REPO_ROOT="$(cd -- "$(dirname -- "$SCRIPT_PATH")/.." && pwd -P)"
 cd -- "$REPO_ROOT"

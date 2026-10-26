@@ -33,7 +33,7 @@ from typing import Any
 
 SOURCE_ROOTS_FILENAME = "source-roots.json"
 SOURCE_ROOTS_VERSION = 1
-SUPPORTED_PROVIDERS = ("codex", "claude", "gemini", "git")
+SUPPORTED_PROVIDERS = ("codex", "claude", "gemini", "opencode", "git")
 SUPPORTED_PROVIDER_SET = frozenset(SUPPORTED_PROVIDERS)
 MAX_ROOTS_PER_PROVIDER = 16
 MAX_ROOT_PATH_LENGTH = 4_096

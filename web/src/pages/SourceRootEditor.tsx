@@ -1,7 +1,7 @@
 import { ChevronDown, FolderCog, Plus, Trash2 } from "lucide-react";
 import { useState, type FormEvent } from "react";
 
-export type SourceRootProvider = "codex" | "claude" | "gemini" | "git";
+export type SourceRootProvider = "codex" | "claude" | "gemini" | "opencode" | "git";
 
 export interface SourceRootStatus {
   provider: SourceRootProvider;
@@ -56,6 +56,12 @@ const PROVIDERS: ProviderDetails[] = [
     label: "Gemini",
     description: "Conversation sessions",
     suggestion: "~/.gemini",
+  },
+  {
+    id: "opencode",
+    label: "OpenCode",
+    description: "Conversation database folder",
+    suggestion: "~/.local/share/opencode",
   },
   {
     id: "git",

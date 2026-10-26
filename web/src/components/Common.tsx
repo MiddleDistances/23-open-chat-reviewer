@@ -38,6 +38,7 @@ export const CONVERSATION_PROVIDERS = [
   { value: "codex", label: "Codex" },
   { value: "claude", label: "Claude" },
   { value: "gemini", label: "Gemini" },
+  { value: "opencode", label: "OpenCode" },
 ] as const;
 
 export function ProviderOptions({ allLabel = "All providers" }: { allLabel?: string }) {

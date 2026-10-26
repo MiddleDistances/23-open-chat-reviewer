@@ -29,7 +29,7 @@ from uuid import UUID
 from chatreview.db import database
 from chatreview.network import tailscale_identity
 
-SUPPORTED_PROVIDERS = ("codex", "claude", "gemini", "git")
+SUPPORTED_PROVIDERS = ("codex", "claude", "gemini", "opencode", "git")
 """Provider names accepted by a setup plan, in the default display order."""
 
 _DATE_FORMAT = "%Y-%m-%d"

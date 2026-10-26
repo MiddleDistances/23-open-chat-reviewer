@@ -24,9 +24,7 @@ def write_jsonl(path: Path, records: list[dict | bytes]) -> None:
 @pytest.fixture()
 def postgres_database_url() -> str:
     schema = f"test_{uuid4().hex}"
-    base_url = os.environ.get(
-        "CHATREVIEW_TEST_DATABASE_URL", "postgresql:///chatreview_test?port=6543"
-    )
+    base_url = os.environ.get("CHATREVIEW_TEST_DATABASE_URL", "postgresql:///chatreview_test?port=6543")
     with psycopg.connect(base_url, autocommit=True) as connection:
         connection.execute(f'CREATE SCHEMA "{schema}"')
     parameters = conninfo_to_dict(base_url)
@@ -43,7 +41,10 @@ def postgres_database_url() -> str:
 
 
 @pytest.fixture()
-def corpus(tmp_path: Path, postgres_database_url: str) -> tuple[Settings, Path, Path]:
+def corpus(
+    tmp_path: Path, postgres_database_url: str, monkeypatch: pytest.MonkeyPatch
+) -> tuple[Settings, Path, Path]:
+    monkeypatch.setenv("CHATREVIEW_OPENCODE_ROOTS", "[]")
     codex = tmp_path / "codex"
     claude = tmp_path / "claude"
     data = tmp_path / "state"

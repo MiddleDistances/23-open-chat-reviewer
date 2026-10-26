@@ -29,7 +29,7 @@ That is the project: **a private, self-hosted memory for AI-assisted work.**
 
 ### Remember the work
 
-Bring Codex, Claude, and Gemini conversation history from all your computers into one
+Bring Codex, Claude, Gemini, and OpenCode conversation history from all your computers into one
 searchable archive. Open a conversation, inspect its evidence, and see where the work
 appears to have stopped.
 
@@ -83,6 +83,7 @@ locations as suggestions/fallbacks:
 - Codex in `~/.codex`
 - Claude in `~/.claude`
 - Gemini in `~/.gemini`
+- OpenCode in `~/.local/share/opencode` (or `$XDG_DATA_HOME/opencode`)
 - Git repositories under `~/Projects`
 
 They are not requirements. Source folders belong to the machine that owns them, and
@@ -130,7 +131,7 @@ sync, and installs the recurring sync schedule. The full beginner and security g
 
 ## What is available today
 
-- Cross-machine Codex, Claude, Gemini, and Git ingestion
+- Cross-machine Codex, Claude, Gemini, OpenCode, and Git ingestion
 - Exact search, conversation traces, evidence links, and annotations
 - Optional local semantic search and corpus map
 - Workload calendar and draft timesheet export

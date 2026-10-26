@@ -253,6 +253,9 @@ def preview_source_selection(
         elif source.provider == "git":
             kind = "unbounded"
             reason = "Git metadata is outside conversation history scope"
+        elif source.provider == "opencode":
+            kind = "aggregate"
+            reason = "OpenCode session exports retain full history; export mtime is not an evidence date"
         elif source.source_kind == "history":
             kind = "aggregate"
             reason = "aggregate history cannot be safely split at discovery"

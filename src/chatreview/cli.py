@@ -37,7 +37,7 @@ from chatreview.exporter import collect_evidence, write_export
 from chatreview.ingest import sync_sources
 from chatreview.inventory import build_inventory, write_inventory
 from chatreview.network import tailscale_identity
-from chatreview.providers import ClaudeAdapter, CodexAdapter, GeminiAdapter, GitAdapter
+from chatreview.providers import ClaudeAdapter, CodexAdapter, GeminiAdapter, GitAdapter, OpenCodeAdapter
 from chatreview.reporting import build_baseline_report, write_baseline_report
 from chatreview.resume import (
     ProviderResumeModel,
@@ -120,6 +120,12 @@ ClaudeRoot = Annotated[
     list[Path] | None,
     typer.Option("--claude-root", help="Claude home/history root; repeat for another location."),
 ]
+OpenCodeRoot = Annotated[
+    list[Path] | None,
+    typer.Option(
+        "--opencode-root", help="OpenCode data folder containing opencode.db; repeat for another location."
+    ),
+]
 GeminiRoot = Annotated[
     list[Path] | None,
     typer.Option("--gemini-root", help="Gemini CLI home/history root; repeat for another location."),
@@ -146,6 +152,7 @@ def _settings(
     claude_root: list[Path] | None,
     gemini_root: list[Path] | None = None,
     git_root: list[Path] | None = None,
+    opencode_root: list[Path] | None = None,
 ) -> Settings:
     return default_settings(
         data_dir=data_dir,
@@ -153,6 +160,7 @@ def _settings(
         claude_root=claude_root,
         gemini_root=gemini_root,
         git_root=git_root,
+        opencode_root=opencode_root,
     )
 
 
@@ -161,6 +169,7 @@ def _adapters(settings: Settings, *, include_git: bool) -> list:
         CodexAdapter(settings.roots_for("codex")),
         ClaudeAdapter(settings.roots_for("claude")),
         GeminiAdapter(settings.roots_for("gemini")),
+        OpenCodeAdapter(settings.roots_for("opencode"), settings.data_dir / "opencode-sources"),
     ]
     if include_git:
         adapters.append(GitAdapter(settings.roots_for("git"), settings.git_sources_dir))
@@ -168,18 +177,18 @@ def _adapters(settings: Settings, *, include_git: bool) -> list:
 
 
 def _provider_selection(provider: list[str] | None, *, include_git: bool) -> set[str] | None:
-    allowed = {"codex", "claude", "gemini", "git"}
+    allowed = {"codex", "claude", "gemini", "opencode", "git"}
     selected = set(provider or ())
     invalid = selected - allowed
     if invalid:
         raise typer.BadParameter(
-            f"unknown provider(s): {', '.join(sorted(invalid))}; use codex, claude, gemini, or git"
+            f"unknown provider(s): {', '.join(sorted(invalid))}; use codex, claude, gemini, opencode, or git"
         )
     if selected:
         if not include_git:
             selected.discard("git")
         return selected
-    return None if include_git else {"codex", "claude", "gemini"}
+    return None if include_git else {"codex", "claude", "gemini", "opencode"}
 
 
 def _source_root_has_input(provider: str, root: Path) -> bool:
@@ -187,6 +196,8 @@ def _source_root_has_input(provider: str, root: Path) -> bool:
         return (root / "sessions").is_dir() or (root / "history.jsonl").is_file()
     if provider == "claude":
         return (root / "projects").is_dir() or (root / "history.jsonl").is_file()
+    if provider == "opencode":
+        return (root / "opencode.db").is_file()
     if provider == "gemini":
         return (root / "tmp").is_dir()
     return root.is_dir()
@@ -199,13 +210,14 @@ def sources_check(
     claude_root: ClaudeRoot = None,
     gemini_root: GeminiRoot = None,
     git_root: GitRoot = None,
+    opencode_root: OpenCodeRoot = None,
 ) -> None:
     """Verify that at least one configured machine-local source folder exists."""
 
-    settings = _settings(data_dir, codex_root, claude_root, gemini_root, git_root)
+    settings = _settings(data_dir, codex_root, claude_root, gemini_root, git_root, opencode_root)
     found = False
     configured = 0
-    for provider in ("codex", "claude", "gemini", "git"):
+    for provider in ("codex", "claude", "gemini", "opencode", "git"):
         for root in settings.roots_for(provider):
             configured += 1
             present = _source_root_has_input(provider, root)
@@ -213,7 +225,7 @@ def sources_check(
             typer.echo(f"[{'OK' if present else 'INFO':4}] {provider}: {root}")
     if not found:
         detail = "no folders are configured" if configured == 0 else "configured folders contain no sources"
-        typer.echo(f"No Codex, Claude, Gemini, or Git sources found: {detail}.", err=True)
+        typer.echo(f"No Codex, Claude, Gemini, OpenCode, or Git sources found: {detail}.", err=True)
         raise typer.Exit(1)
 
 
@@ -421,6 +433,9 @@ def initialize(
         "CHATREVIEW_CODEX_ROOTS": json.dumps([str(Path.home() / ".codex")]),
         "CHATREVIEW_CLAUDE_ROOTS": json.dumps([str(Path.home() / ".claude")]),
         "CHATREVIEW_GEMINI_ROOTS": json.dumps([str(Path.home() / ".gemini")]),
+        "CHATREVIEW_OPENCODE_ROOTS": json.dumps([
+            str(Path(os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local/share"))) / "opencode")
+        ]),
         "CHATREVIEW_GIT_ROOTS": json.dumps([str(Path.home() / "Projects")]),
         "CHATREVIEW_ENABLE_GIT": "1",
         "CHATREVIEW_ENABLE_SUMMARIES": "0",
@@ -523,8 +538,9 @@ def _doctor(
     claude_root: ClaudeRoot = None,
     gemini_root: GeminiRoot = None,
     git_root: GitRoot = None,
+    opencode_root: OpenCodeRoot = None,
 ) -> None:
-    settings = _settings(data_dir, codex_root, claude_root, gemini_root, git_root)
+    settings = _settings(data_dir, codex_root, claude_root, gemini_root, git_root, opencode_root)
     checks: list[tuple[str, bool, str, bool]] = [
         ("Python >= 3.12", sys.version_info >= (3, 12), sys.version.split()[0], True),
     ]
@@ -532,15 +548,17 @@ def _doctor(
         "codex": lambda root: (root / "sessions").is_dir() or (root / "history.jsonl").is_file(),
         "claude": lambda root: (root / "projects").is_dir() or (root / "history.jsonl").is_file(),
         "gemini": lambda root: bool(GeminiAdapter(root).discover()),
+        "opencode": lambda root: (root / "opencode.db").is_file(),
         "git": lambda root: root.is_dir(),
     }
     labels = {
         "codex": "Codex sessions",
         "claude": "Claude projects",
         "gemini": "Gemini conversations",
+        "opencode": "OpenCode conversations",
         "git": "Git projects",
     }
-    for provider in ("codex", "claude", "gemini", "git"):
+    for provider in ("codex", "claude", "gemini", "opencode", "git"):
         roots = settings.roots_for(provider)
         if not roots:
             checks.append((labels[provider], False, "disabled (no folders configured)", False))
@@ -589,10 +607,11 @@ def doctor(
     claude_root: ClaudeRoot = None,
     gemini_root: GeminiRoot = None,
     git_root: GitRoot = None,
+    opencode_root: OpenCodeRoot = None,
 ) -> None:
     """Check PostgreSQL, source roots, optional search support, and UI assets."""
 
-    _doctor(data_dir, codex_root, claude_root, gemini_root, git_root)
+    _doctor(data_dir, codex_root, claude_root, gemini_root, git_root, opencode_root)
 
 
 @db_app.command("doctor")
@@ -602,10 +621,11 @@ def db_doctor(
     claude_root: ClaudeRoot = None,
     gemini_root: GeminiRoot = None,
     git_root: GitRoot = None,
+    opencode_root: OpenCodeRoot = None,
 ) -> None:
     """Check database connectivity and the surrounding installation."""
 
-    _doctor(data_dir, codex_root, claude_root, gemini_root, git_root)
+    _doctor(data_dir, codex_root, claude_root, gemini_root, git_root, opencode_root)
 
 
 @db_app.command("migrate")
@@ -649,6 +669,7 @@ def inventory(
     claude_root: ClaudeRoot = None,
     gemini_root: GeminiRoot = None,
     git_root: GitRoot = None,
+    opencode_root: OpenCodeRoot = None,
     include_git: Annotated[
         bool,
         typer.Option("--git/--no-git", envvar="CHATREVIEW_ENABLE_GIT"),
@@ -658,7 +679,7 @@ def inventory(
 ) -> None:
     """Profile discovered chat files, optional Git evidence, and current coverage."""
 
-    settings = _settings(data_dir, codex_root, claude_root, gemini_root, git_root)
+    settings = _settings(data_dir, codex_root, claude_root, gemini_root, git_root, opencode_root)
     adapters = _adapters(settings, include_git=include_git)
     for adapter in adapters:
         prepare = getattr(adapter, "prepare", None)
@@ -679,6 +700,7 @@ def sync_command(
     claude_root: ClaudeRoot = None,
     gemini_root: GeminiRoot = None,
     git_root: GitRoot = None,
+    opencode_root: OpenCodeRoot = None,
     provider: Annotated[list[str] | None, typer.Option("--provider")] = None,
     include_git: Annotated[
         bool,
@@ -707,7 +729,7 @@ def sync_command(
 ) -> None:
     """Incrementally sync read-only source directories into PostgreSQL."""
 
-    settings = _settings(data_dir, codex_root, claude_root, gemini_root, git_root)
+    settings = _settings(data_dir, codex_root, claude_root, gemini_root, git_root, opencode_root)
     providers = _provider_selection(provider, include_git=include_git)
     if shard_index >= shard_count:
         raise typer.BadParameter("--shard-index must be less than --shard-count")
@@ -717,9 +739,9 @@ def sync_command(
         history_scope = HistoryScope(history_since, history_until)
     except (TypeError, ValueError) as exc:
         raise typer.BadParameter(str(exc)) from exc
-    if (
-        providers is None or "gemini" in providers
-    ) and not GeminiAdapter(settings.roots_for("gemini")).discover():
+    if (providers is None or "gemini" in providers) and not GeminiAdapter(
+        settings.roots_for("gemini")
+    ).discover():
         typer.echo(
             "Gemini: no local session/history documents were found; if Gemini CLI did not "
             "retain them, an export or supported API source is required."
@@ -1177,6 +1199,7 @@ def worker_once(
     claude_root: ClaudeRoot = None,
     gemini_root: GeminiRoot = None,
     git_root: GitRoot = None,
+    opencode_root: OpenCodeRoot = None,
     provider: Annotated[list[str] | None, typer.Option("--provider")] = None,
     include_git: Annotated[
         bool,
@@ -1191,7 +1214,7 @@ def worker_once(
 ) -> None:
     """Run one complete sync, episode, workload, and optional summary cycle."""
 
-    settings = _settings(data_dir, codex_root, claude_root, gemini_root, git_root)
+    settings = _settings(data_dir, codex_root, claude_root, gemini_root, git_root, opencode_root)
     result = run_cycle(
         settings,
         providers=_provider_selection(provider, include_git=include_git),
@@ -1210,6 +1233,7 @@ def worker_run(
     claude_root: ClaudeRoot = None,
     gemini_root: GeminiRoot = None,
     git_root: GitRoot = None,
+    opencode_root: OpenCodeRoot = None,
     provider: Annotated[list[str] | None, typer.Option("--provider")] = None,
     include_git: Annotated[
         bool,
@@ -1225,7 +1249,7 @@ def worker_run(
 ) -> None:
     """Run complete cycles on an interval until SIGINT or SIGTERM."""
 
-    settings = _settings(data_dir, codex_root, claude_root, gemini_root, git_root)
+    settings = _settings(data_dir, codex_root, claude_root, gemini_root, git_root, opencode_root)
     run_forever(
         settings,
         interval_seconds=interval,

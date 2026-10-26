@@ -15,6 +15,7 @@ def _make_provider_roots(tmp_path: Path) -> dict[str, list[Path]]:
         "codex": [root_base / "codex-primary", root_base / "codex-secondary"],
         "claude": [root_base / "claude"],
         "gemini": [root_base / "gemini"],
+        "opencode": [root_base / "opencode"],
         "git": [root_base / "repositories"],
     }
     for provider_roots in roots.values():
@@ -90,7 +91,7 @@ def test_local_source_update_persists_multiple_roots_without_restart_or_archive_
     assert status.status_code == 200
     assert [root["path"] for root in status.json()["roots"]] == [
         path
-        for provider in ("codex", "claude", "gemini", "git")
+        for provider in ("codex", "claude", "gemini", "opencode", "git")
         for path in expected[provider]
     ]
     assert status.json()["source_actions_enabled"] is True
