@@ -34,7 +34,7 @@ import AgentSetupGuide, { type AgentSetupGuideProps } from "./AgentSetupGuide";
 import SourceRootEditor, { type SourceRootEditorProps } from "./SourceRootEditor";
 import { useExperienceMode } from "../preferences";
 
-export type SetupProvider = "codex" | "claude" | "gemini";
+export type SetupProvider = "codex" | "claude" | "gemini" | "opencode";
 
 export interface SetupConfig {
   /** Inclusive lower bound. An empty value means the oldest available record. */
@@ -159,7 +159,7 @@ export interface SetupPageProps {
 
 export const DEFAULT_SETUP_CONFIG: SetupConfig = {
   ...quickRangePatch("7d"),
-  providers: ["codex", "claude", "gemini"],
+  providers: ["codex", "claude", "gemini", "opencode"],
   includeGitMetadata: true,
   // Exact evidence is retained by default; the two derived search controls are opt-in.
   preserveEncryptedReasoning: true,
@@ -191,6 +191,7 @@ const PROVIDERS: Array<{ value: SetupProvider; label: string }> = [
   { value: "codex", label: "Codex" },
   { value: "claude", label: "Claude" },
   { value: "gemini", label: "Gemini" },
+  { value: "opencode", label: "OpenCode" },
 ];
 
 const QUICK_RANGES = [

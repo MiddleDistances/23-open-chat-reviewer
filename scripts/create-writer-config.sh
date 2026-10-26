@@ -85,6 +85,7 @@ mkdir -p -- "$writer_dir"
     printf 'export CHATREVIEW_CODEX_ROOTS='"'"'["~/.codex"]'"'"'\n'
     printf 'export CHATREVIEW_CLAUDE_ROOTS='"'"'["~/.claude"]'"'"'\n'
     printf 'export CHATREVIEW_GEMINI_ROOTS='"'"'["~/.gemini"]'"'"'\n'
+    printf 'export CHATREVIEW_OPENCODE_ROOTS='"'"'["~/.local/share/opencode"]'"'"'\n'
     printf 'export CHATREVIEW_GIT_ROOTS='"'"'["~/Projects"]'"'"'\n'
     printf 'export CHATREVIEW_ENABLE_GIT=1\n'
     printf 'export CHATREVIEW_ENABLE_SUMMARIES=0\n'

@@ -262,3 +262,28 @@ PostgreSQL TLS as an additional layer if your deployment policy requires it.
 [grants]: https://tailscale.com/docs/reference/syntax/grants
 [tags]: https://tailscale.com/kb/1068/acl-tags
 [magicdns]: https://tailscale.com/docs/features/magicdns
+
+## Updating an existing Mac writer for OpenCode
+
+Keep Tailscale connected and run this from the existing Open Chat Reviewer checkout.
+Reuse its private `.chatreview/archive.env`; keep the same machine ID and database.
+Do not run `init` or database migrations on the Mac writer.
+
+```bash
+git pull --ff-only &&
+uv sync --locked --inexact &&
+scripts/chatreview-sync.sh --no-git \
+  --opencode-root "${XDG_DATA_HOME:-$HOME/.local/share}/opencode"
+```
+
+This syncs Codex, Claude, Gemini and OpenCode into the configured central archive.
+The explicit OpenCode root also works when an older `source-roots.json` does not
+list the new provider. It applies to this invocation only. For future scheduled
+runs, add the OpenCode folder in the Mac's source-root configuration as well.
+The dependency update retains installed optional packages, such as MCP support.
+The sync is resumable and skips unchanged evidence. `--no-git` limits this pass
+to conversation history. A dirty checkout must be reviewed before updating;
+never discard local changes to make the pull succeed.
+
+OpenCode's current SQLite layout is supported. Legacy JSON storage, credentials,
+diagnostic logs and snapshot repositories are not conversation inputs.

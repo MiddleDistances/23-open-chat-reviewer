@@ -22,7 +22,7 @@ interface SetupStatusResponse {
   generated_at: string;
   machine: { id: string; name: string; hostname: string };
   roots: Array<{
-    provider: "codex" | "claude" | "gemini" | "git";
+    provider: "codex" | "claude" | "gemini" | "opencode" | "git";
     path: string | null;
     exists: boolean;
     readable: boolean;
@@ -347,7 +347,7 @@ export default function SetupRoute() {
   }
 
   async function saveSourceRoots(
-    roots: Array<{ provider: "codex" | "claude" | "gemini" | "git"; path: string }>,
+    roots: Array<{ provider: "codex" | "claude" | "gemini" | "opencode" | "git"; path: string }>,
   ) {
     const result = await api<SetupStatusResponse>("/api/setup/sources", {
       method: "PUT",

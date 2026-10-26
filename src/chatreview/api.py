@@ -141,7 +141,7 @@ class ProjectAliasInput(BaseModel):
     project_id: int
     path_prefix: str = Field(min_length=1, max_length=4096)
     machine_id: str | None = None
-    provider: Literal["codex", "claude", "gemini", "git"] | None = None
+    provider: Literal["codex", "claude", "gemini", "opencode", "git"] | None = None
     alias: str | None = Field(default=None, max_length=4096)
     effective_from: datetime | None = None
     effective_to: datetime | None = None
@@ -176,8 +176,8 @@ class CombinedTimesheetInput(BaseModel):
 class SetupPreviewInput(BaseModel):
     history_start: date | None = None
     history_end: date | None = None
-    providers: list[Literal["codex", "claude", "gemini"]] = Field(
-        default_factory=lambda: ["codex", "claude", "gemini"]
+    providers: list[Literal["codex", "claude", "gemini", "opencode"]] = Field(
+        default_factory=lambda: ["codex", "claude", "gemini", "opencode"]
     )
     include_git_metadata: bool = True
     preserve_encrypted_reasoning: bool = True
@@ -191,7 +191,7 @@ class SourceRootInput(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    provider: Literal["codex", "claude", "gemini", "git"]
+    provider: Literal["codex", "claude", "gemini", "opencode", "git"]
     path: str = Field(min_length=1, max_length=4_096)
 
 
@@ -909,7 +909,7 @@ def create_app(settings: Settings) -> FastAPI:
             if as_text and raw.get("raw") is not None:
                 media_type = (
                     "application/json"
-                    if raw.get("provider") == "gemini"
+                    if raw.get("provider") in {"gemini", "opencode"}
                     else "application/x-ndjson"
                 )
                 return Response(raw["raw"], media_type=media_type)

@@ -1858,12 +1858,13 @@ class _WorkerRequest:
 
 
 def _configured_adapters(settings: Settings) -> list[ProviderAdapter]:
-    from chatreview.providers import ClaudeAdapter, CodexAdapter, GeminiAdapter, GitAdapter
+    from chatreview.providers import ClaudeAdapter, CodexAdapter, GeminiAdapter, GitAdapter, OpenCodeAdapter
 
     return [
         CodexAdapter(settings.roots_for("codex")),
         ClaudeAdapter(settings.roots_for("claude")),
         GeminiAdapter(settings.roots_for("gemini")),
+        OpenCodeAdapter(settings.roots_for("opencode"), settings.data_dir / "opencode-sources"),
         GitAdapter(settings.roots_for("git"), settings.git_sources_dir),
     ]
 

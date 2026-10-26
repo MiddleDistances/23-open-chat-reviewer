@@ -30,6 +30,12 @@ class Settings:
     claude_history: Path
     gemini_root: Path
     git_root: Path
+    opencode_root: Path = field(
+        default_factory=lambda: (
+            Path(os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local/share"))) / "opencode"
+        )
+    )
+    opencode_roots: tuple[Path, ...] | None = None
     codex_roots: tuple[Path, ...] | None = None
     claude_roots: tuple[Path, ...] | None = None
     gemini_roots: tuple[Path, ...] | None = None
@@ -86,6 +92,7 @@ def default_settings(
     claude_root: Path | Sequence[Path] | None = None,
     gemini_root: Path | Sequence[Path] | None = None,
     git_root: Path | Sequence[Path] | None = None,
+    opencode_root: Path | Sequence[Path] | None = None,
 ) -> Settings:
     user_home = Path.home()
     configured_data = os.environ.get("CHATREVIEW_DATA_DIR")
@@ -100,12 +107,14 @@ def default_settings(
         "claude": claude_root,
         "gemini": gemini_root,
         "git": git_root,
+        "opencode": opencode_root,
     }
     defaults = {
         "codex": user_home / ".codex",
         "claude": user_home / ".claude",
         "gemini": user_home / ".gemini",
         "git": user_home / "Projects",
+        "opencode": Path(os.environ.get("XDG_DATA_HOME", str(user_home / ".local/share"))) / "opencode",
     }
     resolved_roots: dict[str, tuple[Path, ...]] = {}
     for provider in SUPPORTED_PROVIDERS:
@@ -127,20 +136,18 @@ def default_settings(
     database_url = os.environ.get("CHATREVIEW_DATABASE_URL", "").strip()
     machine_id_text = os.environ.get("CHATREVIEW_MACHINE_ID", "").strip()
     if not database_url:
-        raise ValueError("CHATREVIEW_DATABASE_URL is required (for example postgresql:///chatreview?port=6543)")
+        raise ValueError(
+            "CHATREVIEW_DATABASE_URL is required (for example postgresql:///chatreview?port=6543)"
+        )
     if not machine_id_text:
         raise ValueError("CHATREVIEW_MACHINE_ID is required and must be a configured UUID")
     try:
         machine_id = UUID(machine_id_text)
     except ValueError as exc:
         raise ValueError("CHATREVIEW_MACHINE_ID must be a UUID") from exc
-    raw_reasoning_retention = os.environ.get(
-        "CHATREVIEW_RAW_REASONING_RETENTION", "preserve"
-    ).strip().lower()
+    raw_reasoning_retention = os.environ.get("CHATREVIEW_RAW_REASONING_RETENTION", "preserve").strip().lower()
     if raw_reasoning_retention not in {"preserve", "redact"}:
-        raise ValueError(
-            "CHATREVIEW_RAW_REASONING_RETENTION must be 'preserve' or 'redact'"
-        )
+        raise ValueError("CHATREVIEW_RAW_REASONING_RETENTION must be 'preserve' or 'redact'")
     return Settings(
         database_url=database_url,
         machine_id=machine_id,
@@ -157,6 +164,8 @@ def default_settings(
         claude_roots=resolved_roots["claude"],
         gemini_roots=resolved_roots["gemini"],
         git_roots=resolved_roots["git"],
+        opencode_root=_first_or_default(resolved_roots["opencode"], defaults["opencode"]),
+        opencode_roots=resolved_roots["opencode"],
         raw_reasoning_retention=raw_reasoning_retention,
     )
 

@@ -5,7 +5,7 @@ optional model-authored guidance.
 
 ```text
 read-only source roots
-  Codex | Claude | Gemini | Git
+  Codex | Claude | Gemini | OpenCode | Git
               |
               v
 inventory -> raw records + hashes + byte locations (PostgreSQL authority)
@@ -108,3 +108,22 @@ the web process is stateless apart from static UI assets.
 
 The database decision is recorded in
 [ADR 0001](adr/0001-postgresql-pgvector-archive.md).
+
+### OpenCode evidence
+
+The OpenCode adapter opens `opencode.db` with SQLite `mode=ro` and a consistent
+read transaction (including live WAL contents). It exports exact session, message
+and part row values, retaining original JSON strings, into private deterministic
+files under `.chatreview/opencode-sources/`. Raw archive byte offsets refer to
+these exports; provenance identifies the original database and session. Unchanged
+exports retain their mtime. Source credentials, diagnostic logs, backups and
+snapshot repositories are excluded. The current SQLite layout is supported;
+legacy JSON storage is not yet supported. Bounded history syncs retain complete
+OpenCode sessions conservatively because export mtimes are not evidence dates.
+
+Configure `CHATREVIEW_OPENCODE_ROOT` or JSON `CHATREVIEW_OPENCODE_ROOTS`, or add
+an OpenCode folder in setup. The default is `$XDG_DATA_HOME/opencode` (falling
+back to `~/.local/share/opencode`). Existing explicit source-root configurations
+keep new providers disabled until added. Run `scripts/chatreview.sh sync
+--provider opencode` with the intended environment selected. No model runs or
+service deployment are required by the collector.

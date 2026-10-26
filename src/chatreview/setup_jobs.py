@@ -42,7 +42,7 @@ from chatreview.embedding_models import (
     embedding_preset,
 )
 
-ProviderName = Literal["codex", "claude", "gemini", "git"]
+ProviderName = Literal["codex", "claude", "gemini", "opencode", "git"]
 BuildPhase = Literal["sync", "refresh", "semantic"]
 BuildState = Literal[
     "idle",
@@ -57,7 +57,7 @@ BuildState = Literal[
     "interrupted",
 ]
 
-CONVERSATION_PROVIDERS = ("codex", "claude", "gemini")
+CONVERSATION_PROVIDERS = ("codex", "claude", "gemini", "opencode")
 ALL_PROVIDERS = (*CONVERSATION_PROVIDERS, "git")
 DEFAULT_STATE_NAME = "setup-build.json"
 DEFAULT_LOCK_NAME = "setup-build.lock"
